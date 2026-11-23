@@ -1,0 +1,94 @@
+services:
+  postgres:
+    container_name: auth_core_api_postgres
+    image: postgres:16-alpine
+    env_file:
+      - .env
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-auth_core_api}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-auth_core_api}
+    ports:
+      - '${POSTGRES_PORT:-5432}:5432'
+    volumes:
+      - auth_core_api_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        [
+          'CMD-SHELL',
+          'pg_isready -U ${POSTGRES_USER:-auth_core_api} -d ${POSTGRES_DB:-auth_core_api}',
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+  minio:
+    container_name: auth_core_api_minio
+    image: pgsty/silo:RELEASE.2026-10-26T00-00-00Z
+    command: server /data --console-address ":9001"
+    ports:
+      - '${S3_PORT:-9000}:9000'
+      - '${S3_CONSOLE_PORT:-9001}:9001'
+    environment:
+      MINIO_ROOT_USER: ${S3_ACCESS_KEY_ID}
+      MINIO_ROOT_PASSWORD: ${S3_SECRET_ACCESS_KEY}
+    volumes:
+      - auth_core_api_minio_data:/data
+  mailpit:
+    container_name: auth_core_api_mailpit
+    image: axllent/mailpit:v1.27
+    ports:
+      - '${MAILPIT_UI_PORT:-8025}:8025'
+      - '${EMAIL_PORT:-1025}:1025'
+    volumes:
+      - auth_core_api_mailpit_data:/data
+  redis:
+    container_name: auth_core_api_redis
+    image: redis:7-alpine
+    env_file:
+      - .env
+    ports:
+      - '${REDIS_PORT:-6379}:6379'
+    command:
+      [
+        'redis-server',
+        '--requirepass',
+        '${REDIS_PASSWORD:?set REDIS_PASSWORD in .env}',
+      ]
+    volumes:
+      - auth_core_api_redis_data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', '-a', '${REDIS_PASSWORD}', 'ping']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  auth_core_api:
+    container_name: auth_core_api
+    build:
+      dockerfile: Dockerfile
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+    ports:
+      - '${PORT:-2001}:2001'
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_started
+      mailpit:
+        condition: service_started
+
+volumes:
+  auth_core_api_postgres_data:
+    driver: local
+  auth_core_api_redis_data:
+    driver: local
+  auth_core_api_mailpit_data:
+    driver: local
+  auth_core_api_minio_data:
+    driver: local
