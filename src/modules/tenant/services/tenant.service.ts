@@ -2,11 +2,9 @@ import * as crypto from 'node:crypto';
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { BETTER_AUTH_REDIS_CLIENT } from '@/common/auth/better-auth-cache.module';
-import { CacheService } from '@/common/cache/cache.service';
 import { clampZeroBasedPagination } from '@/common/dto/pagination.helper';
 import { BusinessError } from '@/common/errors/business-error';
 import {
-  RESERVED_TENANT_SLUGS,
   TENANT_REPOSITORY_TOKEN,
   type CreateTenantInput,
   type ITenantRepository,
@@ -15,97 +13,33 @@ import {
   type TenantSummaryCache,
   type UpdateTenantInput,
 } from '../interfaces/tenant-repository.interface';
+import {
+  publishTenantInvalidation,
+  readTenantSlugCache,
+  toTenantSummaryCache,
+  writeTenantSlugCache,
+  type TenantRedisClient,
+} from '../utils/tenant-cache.util';
+import {
+  isReservedTenantSlug,
+  mapTenantCreatePgError,
+  normalizeAndValidateTenantSlug,
+} from '../utils/tenant-validation.util';
 
-const TENANT_SLUG_REGEX = /^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$/;
-const TENANT_SLUG_CACHE_PREFIX = 'authcore:tenant:slug:';
-const TENANT_SLUG_CACHE_TTL_MS = 5 * 60 * 1000;
-const CONFIG_INVALIDATED_CHANNEL = 'authcore:config:invalidated';
 const DEFAULT_TIER_ID = 'tier_free';
-
-interface RedisPublishClient {
-  publish?: (channel: string, message: string) => Promise<unknown>;
-}
 
 @Injectable()
 export class TenantService {
   private readonly logger = new Logger(TenantService.name);
-  private readonly reservedSlugSet = new Set<string>(RESERVED_TENANT_SLUGS);
 
   constructor(
     @Inject(TENANT_REPOSITORY_TOKEN)
     private readonly tenantRepo: ITenantRepository,
-    @Optional() private readonly cacheService?: CacheService,
     @Optional()
     @Inject(BETTER_AUTH_REDIS_CLIENT)
-    private readonly redisClient?: RedisPublishClient,
+    private readonly redisClient?: TenantRedisClient,
     @Optional() private readonly eventEmitter?: EventEmitter2,
   ) {}
-
-  private normalizeAndValidateSlug(rawSlug: string): string {
-    const slug = (rawSlug ?? '').trim().toLowerCase();
-
-    if (this.reservedSlugSet.has(slug) || !TENANT_SLUG_REGEX.test(slug)) {
-      throw BusinessError.badRequest(
-        `Slug tenant '${slug}' tidak valid atau termasuk reserved slug.`,
-        'INVALID_TENANT_SLUG',
-        { slug },
-      );
-    }
-
-    return slug;
-  }
-
-  private buildSlugCacheKey(slug: string): string {
-    return `${TENANT_SLUG_CACHE_PREFIX}${slug}`;
-  }
-
-  private toSummaryCache(tenant: TenantRow): TenantSummaryCache {
-    return {
-      id: tenant.id,
-      slug: tenant.slug,
-      status: tenant.status,
-      tierId: tenant.tierId,
-      configVersion: tenant.configVersion,
-    };
-  }
-
-  private async syncSlugCache(tenant: TenantRow): Promise<void> {
-    if (!this.cacheService) return;
-    try {
-      await this.cacheService.set(
-        this.buildSlugCacheKey(tenant.slug),
-        this.toSummaryCache(tenant),
-        TENANT_SLUG_CACHE_TTL_MS,
-      );
-    } catch (err) {
-      this.logger.warn(
-        `Failed to sync Redis slug cache for '${tenant.slug}': ${(err as Error).message}`,
-      );
-    }
-  }
-
-  private async publishInvalidation(tenant: TenantRow): Promise<void> {
-    const payload = {
-      scope: 'tenant' as const,
-      tenantId: tenant.id,
-      slug: tenant.slug,
-      configVersion: tenant.configVersion,
-    };
-
-    this.eventEmitter?.emit('tenant.config.invalidated', payload);
-
-    if (!this.redisClient?.publish) return;
-    try {
-      await this.redisClient.publish(
-        CONFIG_INVALIDATED_CHANNEL,
-        JSON.stringify(payload),
-      );
-    } catch (err) {
-      this.logger.warn(
-        `Failed to publish tenant invalidation for '${tenant.slug}': ${(err as Error).message}`,
-      );
-    }
-  }
 
   private async ensureTierExists(tierId: string): Promise<void> {
     if (!this.tenantRepo.tierExists) return;
@@ -166,23 +100,17 @@ export class TenantService {
     rawSlug: string,
   ): Promise<TenantSummaryCache | null> {
     const slug = (rawSlug ?? '').trim().toLowerCase();
-    if (!slug || this.reservedSlugSet.has(slug)) {
+    if (!slug || isReservedTenantSlug(slug)) {
       return null;
     }
 
-    const cacheKey = this.buildSlugCacheKey(slug);
-    if (this.cacheService) {
-      try {
-        const cached =
-          await this.cacheService.get<TenantSummaryCache>(cacheKey);
-        if (cached) {
-          return cached;
-        }
-      } catch (err) {
-        this.logger.warn(
-          `Failed to read Redis slug cache for '${slug}': ${(err as Error).message}`,
-        );
-      }
+    const cached = await readTenantSlugCache(
+      this.redisClient,
+      slug,
+      this.logger,
+    );
+    if (cached) {
+      return cached;
     }
 
     const tenant = await this.tenantRepo.findBySlug(slug);
@@ -190,12 +118,12 @@ export class TenantService {
       return null;
     }
 
-    await this.syncSlugCache(tenant);
-    return this.toSummaryCache(tenant);
+    await writeTenantSlugCache(this.redisClient, tenant, this.logger);
+    return toTenantSummaryCache(tenant);
   }
 
   async createTenant(input: CreateTenantInput): Promise<TenantRow> {
-    const slug = this.normalizeAndValidateSlug(input.slug);
+    const slug = normalizeAndValidateTenantSlug(input.slug);
     const tierId = input.tierId?.trim() || DEFAULT_TIER_ID;
 
     const existing = await this.tenantRepo.findBySlug(slug);
@@ -209,18 +137,23 @@ export class TenantService {
 
     await this.ensureTierExists(tierId);
 
-    const created = await this.tenantRepo.create({
-      id: `ten_${crypto.randomUUID()}`,
-      name: input.name.trim(),
-      slug,
-      ownerUserId: input.ownerUserId,
-      tierId,
-      status: 'active',
-      billingStatus: input.billingStatus ?? 'active',
-      configVersion: 1,
-    });
+    let created: TenantRow;
+    try {
+      created = await this.tenantRepo.create({
+        id: `ten_${crypto.randomUUID()}`,
+        name: input.name.trim(),
+        slug,
+        ownerUserId: input.ownerUserId,
+        tierId,
+        status: 'active',
+        billingStatus: input.billingStatus ?? 'active',
+        configVersion: 1,
+      });
+    } catch (err) {
+      mapTenantCreatePgError(err, slug, tierId, input.ownerUserId);
+    }
 
-    await this.syncSlugCache(created);
+    await writeTenantSlugCache(this.redisClient, created, this.logger);
     return created;
   }
 
@@ -257,18 +190,23 @@ export class TenantService {
       (input.tierId !== undefined && input.tierId !== existing.tierId) ||
       (input.status !== undefined && input.status !== existing.status);
 
-    let updated =
+    const updated =
       Object.keys(patch).length > 0
-        ? await this.tenantRepo.update(id, patch)
+        ? await this.tenantRepo.update(id, patch, {
+            bumpConfigVersion: tierOrStatusChanged,
+          })
         : existing;
 
     if (tierOrStatusChanged) {
-      const nextVersion = await this.tenantRepo.incrementConfigVersion(id);
-      updated = { ...updated, configVersion: nextVersion };
-      await this.syncSlugCache(updated);
-      await this.publishInvalidation(updated);
+      await writeTenantSlugCache(this.redisClient, updated, this.logger);
+      await publishTenantInvalidation(
+        this.redisClient,
+        this.eventEmitter,
+        updated,
+        this.logger,
+      );
     } else if (Object.keys(patch).length > 0) {
-      await this.syncSlugCache(updated);
+      await writeTenantSlugCache(this.redisClient, updated, this.logger);
     }
 
     return updated;

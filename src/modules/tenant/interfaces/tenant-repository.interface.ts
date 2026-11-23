@@ -61,6 +61,10 @@ export interface TenantSummaryCache {
   configVersion: number;
 }
 
+export interface UpdateTenantRepoOptions {
+  bumpConfigVersion?: boolean;
+}
+
 export interface ITenantRepository {
   findById(id: string): Promise<TenantRow | null>;
   findBySlug(slug: string): Promise<TenantRow | null>;
@@ -68,7 +72,11 @@ export interface ITenantRepository {
     query: ListTenantsQuery,
   ): Promise<{ items: TenantRow[]; total: number }>;
   create(data: NewTenantRow): Promise<TenantRow>;
-  update(id: string, patch: Partial<TenantRow>): Promise<TenantRow>;
+  update(
+    id: string,
+    patch: Partial<TenantRow>,
+    options?: UpdateTenantRepoOptions,
+  ): Promise<TenantRow>;
   incrementConfigVersion(id: string): Promise<number>;
   tierExists?(tierId: string): Promise<boolean>;
 }

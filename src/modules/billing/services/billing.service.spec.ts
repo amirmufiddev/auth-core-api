@@ -122,6 +122,102 @@ describe('BillingService', () => {
     );
   });
 
+  it('should honor explicit tenantBillingStatus override when recording a void entry', async () => {
+    const { billingRepo } = createMocks();
+    const service = new BillingService(billingRepo);
+
+    await service.recordBilling(
+      {
+        tenantId: 'ten_1',
+        tierId: 'tier_business',
+        status: 'void',
+        amount: 0,
+        periodStart: '2026-11-01T00:00:00Z',
+        periodEnd: '2026-12-01T00:00:00Z',
+        tenantBillingStatus: 'suspended',
+      },
+      'usr_admin',
+    );
+
+    expect(billingRepo.recordAndSyncTenantStatus).toHaveBeenCalledWith(
+      expect.objectContaining({ nextTenantBillingStatus: 'suspended' }),
+    );
+  });
+
+  it('should reject negative or non-integer billing amount with 400 INVALID_BILLING_AMOUNT', async () => {
+    const { billingRepo } = createMocks();
+    const service = new BillingService(billingRepo);
+
+    for (const badAmount of [-100, 99.5]) {
+      let caught: unknown;
+      try {
+        await service.recordBilling(
+          {
+            tenantId: 'ten_1',
+            tierId: 'tier_business',
+            status: 'paid',
+            amount: badAmount,
+            periodStart: '2026-11-01T00:00:00Z',
+            periodEnd: '2026-12-01T00:00:00Z',
+          },
+          'usr_admin',
+        );
+      } catch (err) {
+        caught = err;
+      }
+
+      expect(caught).toBeInstanceOf(BusinessError);
+      expect((caught as BusinessError).httpStatus).toBe(400);
+      expect((caught as BusinessError).code).toBe('INVALID_BILLING_AMOUNT');
+    }
+  });
+
+  it('should reject unknown tierId with 400 INVALID_TIER', async () => {
+    const { billingRepo } = createMocks();
+    (billingRepo.tierExists as ReturnType<typeof mock>).mockResolvedValue(
+      false,
+    );
+    const service = new BillingService(billingRepo);
+
+    let caught: unknown;
+    try {
+      await service.recordBilling(
+        {
+          tenantId: 'ten_1',
+          tierId: 'tier_unknown',
+          status: 'paid',
+          amount: 100000,
+          periodStart: '2026-11-01T00:00:00Z',
+          periodEnd: '2026-12-01T00:00:00Z',
+        },
+        'usr_admin',
+      );
+    } catch (err) {
+      caught = err;
+    }
+
+    expect(caught).toBeInstanceOf(BusinessError);
+    expect((caught as BusinessError).httpStatus).toBe(400);
+    expect((caught as BusinessError).code).toBe('INVALID_TIER');
+  });
+
+  it('should throw 404 BILLINGRECORD_NOT_FOUND when getRecordById does not find a record', async () => {
+    const { billingRepo } = createMocks();
+    (billingRepo.findById as ReturnType<typeof mock>).mockResolvedValue(null);
+    const service = new BillingService(billingRepo);
+
+    let caught: unknown;
+    try {
+      await service.getRecordById('rec_missing');
+    } catch (err) {
+      caught = err;
+    }
+
+    expect(caught).toBeInstanceOf(BusinessError);
+    expect((caught as BusinessError).httpStatus).toBe(404);
+    expect((caught as BusinessError).code).toBe('BILLINGRECORD_NOT_FOUND');
+  });
+
   it('should reject invalid billing period where periodEnd <= periodStart', async () => {
     const { billingRepo } = createMocks();
     const service = new BillingService(billingRepo);

@@ -9,6 +9,7 @@ import type {
   ListTenantsQuery,
   NewTenantRow,
   TenantRow,
+  UpdateTenantRepoOptions,
 } from '../interfaces/tenant-repository.interface';
 
 @Injectable()
@@ -94,10 +95,21 @@ export class TenantRepository implements ITenantRepository {
     return created;
   }
 
-  async update(id: string, patch: Partial<TenantRow>): Promise<TenantRow> {
+  async update(
+    id: string,
+    patch: Partial<TenantRow>,
+    options?: UpdateTenantRepoOptions,
+  ): Promise<TenantRow> {
+    const setValues = options?.bumpConfigVersion
+      ? {
+          ...patch,
+          configVersion: sql`${schema.tenant.configVersion} + 1`,
+        }
+      : patch;
+
     const [updated] = await this.db
       .update(schema.tenant)
-      .set(patch)
+      .set(setValues)
       .where(eq(schema.tenant.id, id))
       .returning();
     return updated;
