@@ -3,9 +3,14 @@ import { drizzle } from 'drizzle-orm/node-postgres';
 import { env } from '../config/env.validation';
 import type { Seeder, SeederContext } from './seeds/seeder.interface';
 import { rbacSeeder } from './seeds/rbac.seed';
+import { authTiersSeeder } from './seeds/auth-tiers.seed';
 import { adminSeeder } from './seeds/admin.seed';
 
-export const defaultSeeders: Seeder[] = [rbacSeeder, adminSeeder];
+export const defaultSeeders: Seeder[] = [
+  rbacSeeder,
+  authTiersSeeder,
+  adminSeeder,
+];
 
 export interface RunSeedersOptions {
   force?: boolean;

@@ -1,11 +1,15 @@
 import { pgTable, text, timestamp, index } from 'drizzle-orm/pg-core';
 import { user } from './better-auth-user';
 import { organization } from './better-auth-organization';
+import { tenant } from './tenant';
 
 export const session = pgTable(
   'session',
   {
     id: text('id').primaryKey(),
+    tenantId: text('tenant_id').references(() => tenant.id, {
+      onDelete: 'cascade',
+    }),
     expiresAt: timestamp('expires_at').notNull(),
     token: text('token').notNull().unique(),
     createdAt: timestamp('created_at').defaultNow().notNull(),
@@ -28,6 +32,7 @@ export const session = pgTable(
     }),
   },
   (table) => [
+    index('idx_session_tenant_id').on(table.tenantId),
     index('idx_session_user_id').on(table.userId),
     index('idx_session_token').on(table.token),
     index('idx_session_expires_at').on(table.expiresAt),

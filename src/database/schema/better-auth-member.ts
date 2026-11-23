@@ -7,11 +7,15 @@ import {
 } from 'drizzle-orm/pg-core';
 import { user } from './better-auth-user';
 import { organization } from './better-auth-organization';
+import { tenant } from './tenant';
 
 export const member = pgTable(
   'member',
   {
     id: text('id').primaryKey(),
+    tenantId: text('tenant_id').references(() => tenant.id, {
+      onDelete: 'cascade',
+    }),
     organizationId: text('organization_id')
       .notNull()
       .references(() => organization.id, { onDelete: 'cascade' }),
@@ -22,6 +26,7 @@ export const member = pgTable(
     createdAt: timestamp('created_at').defaultNow().notNull(),
   },
   (table) => [
+    index('idx_member_tenant_id').on(table.tenantId),
     index('idx_member_organization_id').on(table.organizationId),
     index('idx_member_user_id').on(table.userId),
     uniqueIndex('idx_member_org_user_unique').on(

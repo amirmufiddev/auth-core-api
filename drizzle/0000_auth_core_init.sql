@@ -1,5 +1,78 @@
+CREATE TABLE "auth_tier_features" (
+	"tier_id" text NOT NULL,
+	"feature_id" uuid NOT NULL,
+	CONSTRAINT "auth_tier_features_tier_id_feature_id_pk" PRIMARY KEY("tier_id","feature_id")
+);
+--> statement-breakpoint
+CREATE TABLE "auth_tiers" (
+	"id" text PRIMARY KEY NOT NULL,
+	"code" text NOT NULL,
+	"name" text NOT NULL,
+	"description" text,
+	"sort_order" integer DEFAULT 0 NOT NULL,
+	"is_default" boolean DEFAULT false NOT NULL,
+	"created_at" timestamp DEFAULT now() NOT NULL,
+	"updated_at" timestamp DEFAULT now() NOT NULL,
+	CONSTRAINT "auth_tiers_code_unique" UNIQUE("code")
+);
+--> statement-breakpoint
+CREATE TABLE "auth_features" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"code" text NOT NULL,
+	"name" text NOT NULL,
+	"description" text,
+	"category" text NOT NULL,
+	"package_name" text NOT NULL,
+	"status" text DEFAULT 'active' NOT NULL,
+	"dependencies" text[] DEFAULT '{}' NOT NULL,
+	"available_setting" jsonb DEFAULT '[]'::jsonb NOT NULL,
+	"created_at" timestamp DEFAULT now() NOT NULL,
+	"updated_at" timestamp DEFAULT now() NOT NULL,
+	CONSTRAINT "auth_features_code_unique" UNIQUE("code")
+);
+--> statement-breakpoint
+CREATE TABLE "tenant" (
+	"id" text PRIMARY KEY NOT NULL,
+	"name" text NOT NULL,
+	"slug" text NOT NULL,
+	"owner_user_id" text NOT NULL,
+	"tier_id" text NOT NULL,
+	"status" text DEFAULT 'active' NOT NULL,
+	"billing_status" text DEFAULT 'active' NOT NULL,
+	"config_version" integer DEFAULT 1 NOT NULL,
+	"created_at" timestamp DEFAULT now() NOT NULL,
+	"updated_at" timestamp DEFAULT now() NOT NULL,
+	CONSTRAINT "tenant_slug_unique" UNIQUE("slug")
+);
+--> statement-breakpoint
+CREATE TABLE "tenant_billing_records" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"tenant_id" text NOT NULL,
+	"tier_id" text NOT NULL,
+	"status" text NOT NULL,
+	"amount" integer NOT NULL,
+	"currency" text DEFAULT 'IDR' NOT NULL,
+	"period_start" timestamp NOT NULL,
+	"period_end" timestamp NOT NULL,
+	"note" text,
+	"recorded_by" text,
+	"created_at" timestamp DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
+CREATE TABLE "tenant_auth_feature_config" (
+	"tenant_id" text NOT NULL,
+	"feature_id" uuid NOT NULL,
+	"enabled" boolean DEFAULT false NOT NULL,
+	"settings" jsonb DEFAULT '{}'::jsonb NOT NULL,
+	"secrets" jsonb DEFAULT '{}'::jsonb NOT NULL,
+	"updated_by" text,
+	"updated_at" timestamp DEFAULT now() NOT NULL,
+	CONSTRAINT "tenant_auth_feature_config_tenant_id_feature_id_pk" PRIMARY KEY("tenant_id","feature_id")
+);
+--> statement-breakpoint
 CREATE TABLE "user" (
 	"id" text PRIMARY KEY NOT NULL,
+	"tenant_id" text,
 	"name" text NOT NULL,
 	"email" text NOT NULL,
 	"email_verified" boolean DEFAULT false NOT NULL,
@@ -21,14 +94,12 @@ CREATE TABLE "user" (
 	"dodo_customer_id" text,
 	"creem_customer_id" text,
 	"had_trial" boolean DEFAULT false,
-	"chargebee_customer_id" text,
-	CONSTRAINT "user_email_unique" UNIQUE("email"),
-	CONSTRAINT "user_username_unique" UNIQUE("username"),
-	CONSTRAINT "user_phone_number_unique" UNIQUE("phone_number")
+	"chargebee_customer_id" text
 );
 --> statement-breakpoint
 CREATE TABLE "session" (
 	"id" text PRIMARY KEY NOT NULL,
+	"tenant_id" text,
 	"expires_at" timestamp NOT NULL,
 	"token" text NOT NULL,
 	"created_at" timestamp DEFAULT now() NOT NULL,
@@ -44,6 +115,7 @@ CREATE TABLE "session" (
 --> statement-breakpoint
 CREATE TABLE "account" (
 	"id" text PRIMARY KEY NOT NULL,
+	"tenant_id" text,
 	"account_id" text NOT NULL,
 	"provider_id" text NOT NULL,
 	"user_id" text NOT NULL,
@@ -60,6 +132,7 @@ CREATE TABLE "account" (
 --> statement-breakpoint
 CREATE TABLE "verification" (
 	"id" text PRIMARY KEY NOT NULL,
+	"tenant_id" text,
 	"identifier" text NOT NULL,
 	"value" text NOT NULL,
 	"expires_at" timestamp NOT NULL,
@@ -69,16 +142,17 @@ CREATE TABLE "verification" (
 --> statement-breakpoint
 CREATE TABLE "organization" (
 	"id" text PRIMARY KEY NOT NULL,
+	"tenant_id" text NOT NULL,
 	"name" text NOT NULL,
 	"slug" text,
 	"logo" text,
 	"created_at" timestamp DEFAULT now() NOT NULL,
-	"metadata" text,
-	CONSTRAINT "organization_slug_unique" UNIQUE("slug")
+	"metadata" text
 );
 --> statement-breakpoint
 CREATE TABLE "organization_role" (
 	"id" text PRIMARY KEY NOT NULL,
+	"tenant_id" text,
 	"organization_id" text NOT NULL,
 	"role" text NOT NULL,
 	"permission" text DEFAULT '{}',
@@ -89,6 +163,7 @@ CREATE TABLE "organization_role" (
 --> statement-breakpoint
 CREATE TABLE "member" (
 	"id" text PRIMARY KEY NOT NULL,
+	"tenant_id" text,
 	"organization_id" text NOT NULL,
 	"user_id" text NOT NULL,
 	"role" text NOT NULL,
@@ -97,6 +172,7 @@ CREATE TABLE "member" (
 --> statement-breakpoint
 CREATE TABLE "invitation" (
 	"id" text PRIMARY KEY NOT NULL,
+	"tenant_id" text,
 	"organization_id" text NOT NULL,
 	"email" text NOT NULL,
 	"role" text,
@@ -109,6 +185,7 @@ CREATE TABLE "invitation" (
 --> statement-breakpoint
 CREATE TABLE "two_factor" (
 	"id" text PRIMARY KEY NOT NULL,
+	"tenant_id" text,
 	"secret" text NOT NULL,
 	"backup_codes" text NOT NULL,
 	"user_id" text NOT NULL,
@@ -119,6 +196,7 @@ CREATE TABLE "two_factor" (
 --> statement-breakpoint
 CREATE TABLE "passkey" (
 	"id" text PRIMARY KEY NOT NULL,
+	"tenant_id" text,
 	"name" text,
 	"public_key" text NOT NULL,
 	"user_id" text NOT NULL,
@@ -133,6 +211,7 @@ CREATE TABLE "passkey" (
 --> statement-breakpoint
 CREATE TABLE "apikey" (
 	"id" text PRIMARY KEY NOT NULL,
+	"tenant_id" text,
 	"config_id" text DEFAULT 'default' NOT NULL,
 	"name" text,
 	"start" text,
@@ -168,6 +247,7 @@ CREATE TABLE "jwks" (
 --> statement-breakpoint
 CREATE TABLE "oauth_access_token" (
 	"id" text PRIMARY KEY NOT NULL,
+	"tenant_id" text,
 	"token" text,
 	"client_id" text NOT NULL,
 	"session_id" text,
@@ -187,6 +267,7 @@ CREATE TABLE "oauth_access_token" (
 --> statement-breakpoint
 CREATE TABLE "oauth_client" (
 	"id" text PRIMARY KEY NOT NULL,
+	"tenant_id" text,
 	"client_id" text NOT NULL,
 	"client_secret" text,
 	"client_discovery_id" text,
@@ -240,6 +321,7 @@ CREATE TABLE "oauth_client_resource" (
 --> statement-breakpoint
 CREATE TABLE "oauth_consent" (
 	"id" text PRIMARY KEY NOT NULL,
+	"tenant_id" text,
 	"client_id" text NOT NULL,
 	"user_id" text,
 	"reference_id" text,
@@ -252,6 +334,7 @@ CREATE TABLE "oauth_consent" (
 --> statement-breakpoint
 CREATE TABLE "oauth_refresh_token" (
 	"id" text PRIMARY KEY NOT NULL,
+	"tenant_id" text,
 	"token" text NOT NULL,
 	"client_id" text NOT NULL,
 	"session_id" text,
@@ -454,6 +537,7 @@ CREATE TABLE "scim_user" (
 --> statement-breakpoint
 CREATE TABLE "sso_provider" (
 	"id" text PRIMARY KEY NOT NULL,
+	"tenant_id" text,
 	"issuer" text NOT NULL,
 	"oidc_config" text,
 	"saml_config" text,
@@ -468,6 +552,7 @@ CREATE TABLE "sso_provider" (
 --> statement-breakpoint
 CREATE TABLE "device_code" (
 	"id" text PRIMARY KEY NOT NULL,
+	"tenant_id" text,
 	"device_code" text NOT NULL,
 	"user_code" text NOT NULL,
 	"user_id" text,
@@ -611,9 +696,10 @@ CREATE TABLE "approval_request" (
 );
 --> statement-breakpoint
 CREATE TABLE "auth_feature_config" (
-	"feature_id" text PRIMARY KEY NOT NULL,
-	"enabled" boolean NOT NULL,
+	"feature_id" uuid PRIMARY KEY NOT NULL,
+	"enabled" boolean DEFAULT false NOT NULL,
 	"settings" jsonb DEFAULT '{}'::jsonb NOT NULL,
+	"secrets" jsonb DEFAULT '{}'::jsonb NOT NULL,
 	"updated_by" text,
 	"updated_at" timestamp DEFAULT now() NOT NULL
 );
@@ -632,6 +718,7 @@ CREATE TABLE "auth_core_role" (
 --> statement-breakpoint
 CREATE TABLE "audit_trail_logs" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"tenant_id" text,
 	"module_key" text NOT NULL,
 	"actor_id" text,
 	"category" text DEFAULT 'auth' NOT NULL,
@@ -681,26 +768,50 @@ CREATE TABLE "pending_member_links" (
 	"role" varchar(32) NOT NULL
 );
 --> statement-breakpoint
+ALTER TABLE "auth_tier_features" ADD CONSTRAINT "auth_tier_features_tier_id_auth_tiers_id_fk" FOREIGN KEY ("tier_id") REFERENCES "public"."auth_tiers"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "auth_tier_features" ADD CONSTRAINT "auth_tier_features_feature_id_auth_features_id_fk" FOREIGN KEY ("feature_id") REFERENCES "public"."auth_features"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "tenant" ADD CONSTRAINT "tenant_owner_user_id_user_id_fk" FOREIGN KEY ("owner_user_id") REFERENCES "public"."user"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "tenant" ADD CONSTRAINT "tenant_tier_id_auth_tiers_id_fk" FOREIGN KEY ("tier_id") REFERENCES "public"."auth_tiers"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "tenant_billing_records" ADD CONSTRAINT "tenant_billing_records_tenant_id_tenant_id_fk" FOREIGN KEY ("tenant_id") REFERENCES "public"."tenant"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "tenant_billing_records" ADD CONSTRAINT "tenant_billing_records_tier_id_auth_tiers_id_fk" FOREIGN KEY ("tier_id") REFERENCES "public"."auth_tiers"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "tenant_billing_records" ADD CONSTRAINT "tenant_billing_records_recorded_by_user_id_fk" FOREIGN KEY ("recorded_by") REFERENCES "public"."user"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "tenant_auth_feature_config" ADD CONSTRAINT "tenant_auth_feature_config_tenant_id_tenant_id_fk" FOREIGN KEY ("tenant_id") REFERENCES "public"."tenant"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "tenant_auth_feature_config" ADD CONSTRAINT "tenant_auth_feature_config_feature_id_auth_features_id_fk" FOREIGN KEY ("feature_id") REFERENCES "public"."auth_features"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "user" ADD CONSTRAINT "user_tenant_id_tenant_id_fk" FOREIGN KEY ("tenant_id") REFERENCES "public"."tenant"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "session" ADD CONSTRAINT "session_tenant_id_tenant_id_fk" FOREIGN KEY ("tenant_id") REFERENCES "public"."tenant"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "session" ADD CONSTRAINT "session_user_id_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."user"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "session" ADD CONSTRAINT "session_active_organization_id_organization_id_fk" FOREIGN KEY ("active_organization_id") REFERENCES "public"."organization"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "session" ADD CONSTRAINT "session_impersonated_by_user_id_fk" FOREIGN KEY ("impersonated_by") REFERENCES "public"."user"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "account" ADD CONSTRAINT "account_tenant_id_tenant_id_fk" FOREIGN KEY ("tenant_id") REFERENCES "public"."tenant"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "account" ADD CONSTRAINT "account_user_id_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."user"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "verification" ADD CONSTRAINT "verification_tenant_id_tenant_id_fk" FOREIGN KEY ("tenant_id") REFERENCES "public"."tenant"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "organization" ADD CONSTRAINT "organization_tenant_id_tenant_id_fk" FOREIGN KEY ("tenant_id") REFERENCES "public"."tenant"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "organization_role" ADD CONSTRAINT "organization_role_tenant_id_tenant_id_fk" FOREIGN KEY ("tenant_id") REFERENCES "public"."tenant"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "organization_role" ADD CONSTRAINT "organization_role_organization_id_organization_id_fk" FOREIGN KEY ("organization_id") REFERENCES "public"."organization"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "member" ADD CONSTRAINT "member_tenant_id_tenant_id_fk" FOREIGN KEY ("tenant_id") REFERENCES "public"."tenant"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "member" ADD CONSTRAINT "member_organization_id_organization_id_fk" FOREIGN KEY ("organization_id") REFERENCES "public"."organization"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "member" ADD CONSTRAINT "member_user_id_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."user"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "invitation" ADD CONSTRAINT "invitation_tenant_id_tenant_id_fk" FOREIGN KEY ("tenant_id") REFERENCES "public"."tenant"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "invitation" ADD CONSTRAINT "invitation_organization_id_organization_id_fk" FOREIGN KEY ("organization_id") REFERENCES "public"."organization"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "invitation" ADD CONSTRAINT "invitation_inviter_id_user_id_fk" FOREIGN KEY ("inviter_id") REFERENCES "public"."user"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "two_factor" ADD CONSTRAINT "two_factor_tenant_id_tenant_id_fk" FOREIGN KEY ("tenant_id") REFERENCES "public"."tenant"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "two_factor" ADD CONSTRAINT "two_factor_user_id_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."user"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "passkey" ADD CONSTRAINT "passkey_tenant_id_tenant_id_fk" FOREIGN KEY ("tenant_id") REFERENCES "public"."tenant"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "passkey" ADD CONSTRAINT "passkey_user_id_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."user"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "apikey" ADD CONSTRAINT "apikey_tenant_id_tenant_id_fk" FOREIGN KEY ("tenant_id") REFERENCES "public"."tenant"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "oauth_access_token" ADD CONSTRAINT "oauth_access_token_tenant_id_tenant_id_fk" FOREIGN KEY ("tenant_id") REFERENCES "public"."tenant"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "oauth_access_token" ADD CONSTRAINT "oauth_access_token_client_id_oauth_client_client_id_fk" FOREIGN KEY ("client_id") REFERENCES "public"."oauth_client"("client_id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "oauth_access_token" ADD CONSTRAINT "oauth_access_token_session_id_session_id_fk" FOREIGN KEY ("session_id") REFERENCES "public"."session"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "oauth_access_token" ADD CONSTRAINT "oauth_access_token_user_id_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."user"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "oauth_access_token" ADD CONSTRAINT "oauth_access_token_refresh_id_oauth_refresh_token_id_fk" FOREIGN KEY ("refresh_id") REFERENCES "public"."oauth_refresh_token"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "oauth_client" ADD CONSTRAINT "oauth_client_tenant_id_tenant_id_fk" FOREIGN KEY ("tenant_id") REFERENCES "public"."tenant"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "oauth_client" ADD CONSTRAINT "oauth_client_user_id_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."user"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "oauth_client_resource" ADD CONSTRAINT "oauth_client_resource_client_id_oauth_client_client_id_fk" FOREIGN KEY ("client_id") REFERENCES "public"."oauth_client"("client_id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "oauth_client_resource" ADD CONSTRAINT "oauth_client_resource_resource_id_oauth_resource_identifier_fk" FOREIGN KEY ("resource_id") REFERENCES "public"."oauth_resource"("identifier") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "oauth_consent" ADD CONSTRAINT "oauth_consent_tenant_id_tenant_id_fk" FOREIGN KEY ("tenant_id") REFERENCES "public"."tenant"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "oauth_consent" ADD CONSTRAINT "oauth_consent_client_id_oauth_client_client_id_fk" FOREIGN KEY ("client_id") REFERENCES "public"."oauth_client"("client_id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "oauth_consent" ADD CONSTRAINT "oauth_consent_user_id_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."user"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "oauth_refresh_token" ADD CONSTRAINT "oauth_refresh_token_tenant_id_tenant_id_fk" FOREIGN KEY ("tenant_id") REFERENCES "public"."tenant"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "oauth_refresh_token" ADD CONSTRAINT "oauth_refresh_token_client_id_oauth_client_client_id_fk" FOREIGN KEY ("client_id") REFERENCES "public"."oauth_client"("client_id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "oauth_refresh_token" ADD CONSTRAINT "oauth_refresh_token_session_id_session_id_fk" FOREIGN KEY ("session_id") REFERENCES "public"."session"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "oauth_refresh_token" ADD CONSTRAINT "oauth_refresh_token_user_id_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."user"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
@@ -713,7 +824,9 @@ ALTER TABLE "scim_projection_grant" ADD CONSTRAINT "scim_projection_grant_scim_u
 ALTER TABLE "scim_projection_grant" ADD CONSTRAINT "scim_projection_grant_user_id_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."user"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "scim_subject" ADD CONSTRAINT "scim_subject_user_id_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."user"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "scim_user" ADD CONSTRAINT "scim_user_user_id_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."user"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "sso_provider" ADD CONSTRAINT "sso_provider_tenant_id_tenant_id_fk" FOREIGN KEY ("tenant_id") REFERENCES "public"."tenant"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "sso_provider" ADD CONSTRAINT "sso_provider_user_id_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."user"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "device_code" ADD CONSTRAINT "device_code_tenant_id_tenant_id_fk" FOREIGN KEY ("tenant_id") REFERENCES "public"."tenant"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "device_code" ADD CONSTRAINT "device_code_user_id_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."user"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "wallet_address" ADD CONSTRAINT "wallet_address_user_id_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."user"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "team" ADD CONSTRAINT "team_organization_id_organization_id_fk" FOREIGN KEY ("organization_id") REFERENCES "public"."organization"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
@@ -728,39 +841,73 @@ ALTER TABLE "agent_host" ADD CONSTRAINT "agent_host_user_id_user_id_fk" FOREIGN 
 ALTER TABLE "approval_request" ADD CONSTRAINT "approval_request_agent_id_agent_id_fk" FOREIGN KEY ("agent_id") REFERENCES "public"."agent"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "approval_request" ADD CONSTRAINT "approval_request_host_id_agent_host_id_fk" FOREIGN KEY ("host_id") REFERENCES "public"."agent_host"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "approval_request" ADD CONSTRAINT "approval_request_user_id_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."user"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "auth_feature_config" ADD CONSTRAINT "auth_feature_config_feature_id_auth_features_id_fk" FOREIGN KEY ("feature_id") REFERENCES "public"."auth_features"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "audit_trail_logs" ADD CONSTRAINT "audit_trail_logs_tenant_id_tenant_id_fk" FOREIGN KEY ("tenant_id") REFERENCES "public"."tenant"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "audit_trail_logs" ADD CONSTRAINT "audit_trail_logs_actor_id_user_id_fk" FOREIGN KEY ("actor_id") REFERENCES "public"."user"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "pending_member_links" ADD CONSTRAINT "pending_member_links_organization_id_organization_id_fk" FOREIGN KEY ("organization_id") REFERENCES "public"."organization"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+CREATE INDEX "idx_auth_tier_features_feature_id" ON "auth_tier_features" USING btree ("feature_id");--> statement-breakpoint
+CREATE INDEX "idx_tenant_owner_user_id" ON "tenant" USING btree ("owner_user_id");--> statement-breakpoint
+CREATE INDEX "idx_tenant_tier_id" ON "tenant" USING btree ("tier_id");--> statement-breakpoint
+CREATE INDEX "idx_tenant_billing_records_tenant_id" ON "tenant_billing_records" USING btree ("tenant_id");--> statement-breakpoint
+CREATE INDEX "idx_tenant_billing_records_tier_id" ON "tenant_billing_records" USING btree ("tier_id");--> statement-breakpoint
+CREATE INDEX "idx_tenant_auth_feature_config_feature_id" ON "tenant_auth_feature_config" USING btree ("feature_id");--> statement-breakpoint
+CREATE INDEX "idx_user_tenant_id" ON "user" USING btree ("tenant_id");--> statement-breakpoint
 CREATE INDEX "idx_user_email" ON "user" USING btree ("email");--> statement-breakpoint
 CREATE INDEX "idx_user_username" ON "user" USING btree ("username");--> statement-breakpoint
 CREATE INDEX "idx_user_phone_number" ON "user" USING btree ("phone_number");--> statement-breakpoint
+CREATE UNIQUE INDEX "uq_user_platform_email" ON "user" USING btree ("email") WHERE "user"."tenant_id" IS NULL;--> statement-breakpoint
+CREATE UNIQUE INDEX "uq_user_tenant_email" ON "user" USING btree ("tenant_id","email") WHERE "user"."tenant_id" IS NOT NULL;--> statement-breakpoint
+CREATE UNIQUE INDEX "uq_user_platform_username" ON "user" USING btree ("username") WHERE "user"."tenant_id" IS NULL AND "user"."username" IS NOT NULL;--> statement-breakpoint
+CREATE UNIQUE INDEX "uq_user_tenant_username" ON "user" USING btree ("tenant_id","username") WHERE "user"."tenant_id" IS NOT NULL AND "user"."username" IS NOT NULL;--> statement-breakpoint
+CREATE UNIQUE INDEX "uq_user_platform_phone" ON "user" USING btree ("phone_number") WHERE "user"."tenant_id" IS NULL AND "user"."phone_number" IS NOT NULL;--> statement-breakpoint
+CREATE UNIQUE INDEX "uq_user_tenant_phone" ON "user" USING btree ("tenant_id","phone_number") WHERE "user"."tenant_id" IS NOT NULL AND "user"."phone_number" IS NOT NULL;--> statement-breakpoint
+CREATE INDEX "idx_session_tenant_id" ON "session" USING btree ("tenant_id");--> statement-breakpoint
 CREATE INDEX "idx_session_user_id" ON "session" USING btree ("user_id");--> statement-breakpoint
 CREATE INDEX "idx_session_token" ON "session" USING btree ("token");--> statement-breakpoint
 CREATE INDEX "idx_session_expires_at" ON "session" USING btree ("expires_at");--> statement-breakpoint
+CREATE INDEX "idx_account_tenant_id" ON "account" USING btree ("tenant_id");--> statement-breakpoint
 CREATE INDEX "idx_account_user_id" ON "account" USING btree ("user_id");--> statement-breakpoint
 CREATE UNIQUE INDEX "idx_account_provider_account_unique" ON "account" USING btree ("provider_id","account_id");--> statement-breakpoint
+CREATE INDEX "idx_verification_tenant_id" ON "verification" USING btree ("tenant_id");--> statement-breakpoint
 CREATE INDEX "idx_verification_identifier" ON "verification" USING btree ("identifier");--> statement-breakpoint
 CREATE INDEX "idx_verification_expires_at" ON "verification" USING btree ("expires_at");--> statement-breakpoint
+CREATE INDEX "idx_organization_tenant_id" ON "organization" USING btree ("tenant_id");--> statement-breakpoint
 CREATE INDEX "idx_organization_slug" ON "organization" USING btree ("slug");--> statement-breakpoint
+CREATE UNIQUE INDEX "uq_organization_tenant_slug" ON "organization" USING btree ("tenant_id","slug");--> statement-breakpoint
+CREATE INDEX "idx_organization_role_tenant_id" ON "organization_role" USING btree ("tenant_id");--> statement-breakpoint
+CREATE INDEX "idx_organization_role_organization_id" ON "organization_role" USING btree ("organization_id");--> statement-breakpoint
+CREATE INDEX "idx_member_tenant_id" ON "member" USING btree ("tenant_id");--> statement-breakpoint
 CREATE INDEX "idx_member_organization_id" ON "member" USING btree ("organization_id");--> statement-breakpoint
 CREATE INDEX "idx_member_user_id" ON "member" USING btree ("user_id");--> statement-breakpoint
 CREATE UNIQUE INDEX "idx_member_org_user_unique" ON "member" USING btree ("organization_id","user_id");--> statement-breakpoint
+CREATE INDEX "idx_invitation_tenant_id" ON "invitation" USING btree ("tenant_id");--> statement-breakpoint
 CREATE INDEX "idx_invitation_organization_id" ON "invitation" USING btree ("organization_id");--> statement-breakpoint
 CREATE INDEX "idx_invitation_email" ON "invitation" USING btree ("email");--> statement-breakpoint
 CREATE INDEX "idx_invitation_expires_at" ON "invitation" USING btree ("expires_at");--> statement-breakpoint
+CREATE INDEX "idx_two_factor_tenant_id" ON "two_factor" USING btree ("tenant_id");--> statement-breakpoint
 CREATE INDEX "idx_two_factor_user_id" ON "two_factor" USING btree ("user_id");--> statement-breakpoint
+CREATE INDEX "idx_passkey_tenant_id" ON "passkey" USING btree ("tenant_id");--> statement-breakpoint
 CREATE INDEX "idx_passkey_user_id" ON "passkey" USING btree ("user_id");--> statement-breakpoint
 CREATE INDEX "idx_passkey_credential_id" ON "passkey" USING btree ("credential_id");--> statement-breakpoint
+CREATE INDEX "idx_apikey_tenant_id" ON "apikey" USING btree ("tenant_id");--> statement-breakpoint
 CREATE INDEX "idx_apikey_key" ON "apikey" USING btree ("key");--> statement-breakpoint
 CREATE INDEX "idx_apikey_reference_id" ON "apikey" USING btree ("reference_id");--> statement-breakpoint
+CREATE INDEX "idx_oauth_access_token_tenant_id" ON "oauth_access_token" USING btree ("tenant_id");--> statement-breakpoint
+CREATE INDEX "idx_oauth_client_tenant_id" ON "oauth_client" USING btree ("tenant_id");--> statement-breakpoint
 CREATE INDEX "idx_oauth_client_user_id" ON "oauth_client" USING btree ("user_id");--> statement-breakpoint
+CREATE INDEX "idx_oauth_consent_tenant_id" ON "oauth_consent" USING btree ("tenant_id");--> statement-breakpoint
+CREATE INDEX "idx_oauth_refresh_token_tenant_id" ON "oauth_refresh_token" USING btree ("tenant_id");--> statement-breakpoint
+CREATE INDEX "idx_sso_provider_tenant_id" ON "sso_provider" USING btree ("tenant_id");--> statement-breakpoint
 CREATE INDEX "idx_sso_provider_domain" ON "sso_provider" USING btree ("domain");--> statement-breakpoint
 CREATE INDEX "idx_sso_provider_org_id" ON "sso_provider" USING btree ("organization_id");--> statement-breakpoint
+CREATE INDEX "idx_device_code_tenant_id" ON "device_code" USING btree ("tenant_id");--> statement-breakpoint
 CREATE INDEX "idx_device_code_device_code" ON "device_code" USING btree ("device_code");--> statement-breakpoint
 CREATE INDEX "idx_device_code_user_code" ON "device_code" USING btree ("user_code");--> statement-breakpoint
 CREATE INDEX "idx_wallet_address_user_id" ON "wallet_address" USING btree ("user_id");--> statement-breakpoint
 CREATE INDEX "idx_team_organization_id" ON "team" USING btree ("organization_id");--> statement-breakpoint
 CREATE INDEX "idx_team_member_team_id" ON "team_member" USING btree ("team_id");--> statement-breakpoint
 CREATE INDEX "idx_team_member_user_id" ON "team_member" USING btree ("user_id");--> statement-breakpoint
+CREATE INDEX "idx_audit_trail_logs_tenant_id" ON "audit_trail_logs" USING btree ("tenant_id");--> statement-breakpoint
 CREATE INDEX "idx_audit_trail_logs_module_key" ON "audit_trail_logs" USING btree ("module_key");--> statement-breakpoint
 CREATE INDEX "idx_audit_trail_logs_actor_id" ON "audit_trail_logs" USING btree ("actor_id");--> statement-breakpoint
 CREATE INDEX "idx_audit_trail_logs_entity" ON "audit_trail_logs" USING btree ("entity_type","entity_id");--> statement-breakpoint

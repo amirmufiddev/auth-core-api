@@ -1,10 +1,25 @@
-import { pgTable, text, boolean, jsonb, timestamp } from 'drizzle-orm/pg-core';
+import {
+  pgTable,
+  text,
+  boolean,
+  jsonb,
+  timestamp,
+  uuid,
+} from 'drizzle-orm/pg-core';
+import type { EncryptedPayload } from '../../common/crypto/crypto.service';
+import { authFeatures } from './auth-feature';
 
 export const authFeatureConfig = pgTable('auth_feature_config', {
-  featureId: text('feature_id').primaryKey(),
-  enabled: boolean('enabled').notNull(),
+  featureId: uuid('feature_id')
+    .primaryKey()
+    .references(() => authFeatures.id, { onDelete: 'cascade' }),
+  enabled: boolean('enabled').default(false).notNull(),
   settings: jsonb('settings')
     .$type<Record<string, string | number | boolean>>()
+    .default({})
+    .notNull(),
+  secrets: jsonb('secrets')
+    .$type<Record<string, EncryptedPayload>>()
     .default({})
     .notNull(),
   updatedBy: text('updated_by'),

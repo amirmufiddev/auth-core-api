@@ -796,6 +796,9 @@ export class AuthConsoleService {
       .insert(schema.organization)
       .values({
         id: orgId,
+        // Temporary compile compatibility until Task 5 refactors auth-console to platform-console
+        tenantId:
+          (input as { tenantId?: string }).tenantId ?? 'ten_platform_default',
         name: input.name,
         slug: input.slug,
         metadata: JSON.stringify({

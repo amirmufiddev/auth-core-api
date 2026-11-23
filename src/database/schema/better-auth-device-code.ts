@@ -7,11 +7,15 @@ import {
   index,
 } from 'drizzle-orm/pg-core';
 import { user } from './better-auth-user';
+import { tenant } from './tenant';
 
 export const deviceCode = pgTable(
   'device_code',
   {
     id: text('id').primaryKey(),
+    tenantId: text('tenant_id').references(() => tenant.id, {
+      onDelete: 'cascade',
+    }),
     deviceCode: text('device_code').notNull(),
     userCode: text('user_code').notNull(),
     userId: text('user_id').references(() => user.id, { onDelete: 'cascade' }),
@@ -23,6 +27,7 @@ export const deviceCode = pgTable(
     scope: text('scope'),
   },
   (table) => [
+    index('idx_device_code_tenant_id').on(table.tenantId),
     index('idx_device_code_device_code').on(table.deviceCode),
     index('idx_device_code_user_code').on(table.userCode),
   ],

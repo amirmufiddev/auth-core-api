@@ -6,11 +6,15 @@ import {
   uniqueIndex,
 } from 'drizzle-orm/pg-core';
 import { user } from './better-auth-user';
+import { tenant } from './tenant';
 
 export const account = pgTable(
   'account',
   {
     id: text('id').primaryKey(),
+    tenantId: text('tenant_id').references(() => tenant.id, {
+      onDelete: 'cascade',
+    }),
     accountId: text('account_id').notNull(),
     providerId: text('provider_id').notNull(),
     userId: text('user_id')
@@ -30,6 +34,7 @@ export const account = pgTable(
       .notNull(),
   },
   (table) => [
+    index('idx_account_tenant_id').on(table.tenantId),
     index('idx_account_user_id').on(table.userId),
     uniqueIndex('idx_account_provider_account_unique').on(
       table.providerId,

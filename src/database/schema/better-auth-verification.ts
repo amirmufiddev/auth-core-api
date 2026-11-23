@@ -1,9 +1,13 @@
 import { pgTable, text, timestamp, index } from 'drizzle-orm/pg-core';
+import { tenant } from './tenant';
 
 export const verification = pgTable(
   'verification',
   {
     id: text('id').primaryKey(),
+    tenantId: text('tenant_id').references(() => tenant.id, {
+      onDelete: 'cascade',
+    }),
     identifier: text('identifier').notNull(),
     value: text('value').notNull(),
     expiresAt: timestamp('expires_at').notNull(),
@@ -14,6 +18,7 @@ export const verification = pgTable(
       .notNull(),
   },
   (table) => [
+    index('idx_verification_tenant_id').on(table.tenantId),
     index('idx_verification_identifier').on(table.identifier),
     index('idx_verification_expires_at').on(table.expiresAt),
   ],

@@ -7,11 +7,15 @@ import {
   index,
 } from 'drizzle-orm/pg-core';
 import { user } from './better-auth-user';
+import { tenant } from './tenant';
 
 export const auditTrailLogs = pgTable(
   'audit_trail_logs',
   {
     id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: text('tenant_id').references(() => tenant.id, {
+      onDelete: 'set null',
+    }),
     moduleKey: text('module_key').notNull(),
     actorId: text('actor_id').references(() => user.id, {
       onDelete: 'set null',
@@ -32,6 +36,7 @@ export const auditTrailLogs = pgTable(
     createdAt: timestamp('created_at').defaultNow().notNull(),
   },
   (table) => [
+    index('idx_audit_trail_logs_tenant_id').on(table.tenantId),
     index('idx_audit_trail_logs_module_key').on(table.moduleKey),
     index('idx_audit_trail_logs_actor_id').on(table.actorId),
     index('idx_audit_trail_logs_entity').on(table.entityType, table.entityId),

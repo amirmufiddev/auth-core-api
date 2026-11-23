@@ -7,11 +7,15 @@ import {
   index,
 } from 'drizzle-orm/pg-core';
 import { user } from './better-auth-user';
+import { tenant } from './tenant';
 
 export const twoFactor = pgTable(
   'two_factor',
   {
     id: text('id').primaryKey(),
+    tenantId: text('tenant_id').references(() => tenant.id, {
+      onDelete: 'cascade',
+    }),
     secret: text('secret').notNull(),
     backupCodes: text('backup_codes').notNull(),
     userId: text('user_id')
@@ -23,7 +27,10 @@ export const twoFactor = pgTable(
       .notNull(),
     lockedUntil: timestamp('locked_until'),
   },
-  (table) => [index('idx_two_factor_user_id').on(table.userId)],
+  (table) => [
+    index('idx_two_factor_tenant_id').on(table.tenantId),
+    index('idx_two_factor_user_id').on(table.userId),
+  ],
 );
 
 export type TwoFactor = typeof twoFactor.$inferSelect;

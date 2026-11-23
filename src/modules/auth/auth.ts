@@ -715,6 +715,14 @@ const buildPluginsConfig = (
           enabled: true,
         },
         schema: {
+          organization: {
+            additionalFields: {
+              tenantId: {
+                type: 'string',
+                required: true,
+              },
+            },
+          },
           organizationRole: {
             additionalFields: {
               permissionScopes: {

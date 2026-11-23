@@ -9,11 +9,15 @@ import {
 } from 'drizzle-orm/pg-core';
 import { user } from './better-auth-user';
 import { session } from './better-auth-session';
+import { tenant } from './tenant';
 
 export const oauthClient = pgTable(
   'oauth_client',
   {
     id: text('id').primaryKey(),
+    tenantId: text('tenant_id').references(() => tenant.id, {
+      onDelete: 'cascade',
+    }),
     clientId: text('client_id').notNull().unique(),
     clientSecret: text('client_secret'),
     clientDiscoveryId: text('client_discovery_id'),
@@ -52,7 +56,10 @@ export const oauthClient = pgTable(
     referenceId: text('reference_id'),
     metadata: jsonb('metadata'),
   },
-  (table) => [index('idx_oauth_client_user_id').on(table.userId)],
+  (table) => [
+    index('idx_oauth_client_tenant_id').on(table.tenantId),
+    index('idx_oauth_client_user_id').on(table.userId),
+  ],
 );
 
 export const oauthResource = pgTable('oauth_resource', {
@@ -85,70 +92,91 @@ export const oauthClientResource = pgTable('oauth_client_resource', {
   createdAt: timestamp('created_at').defaultNow(),
 });
 
-export const oauthRefreshToken = pgTable('oauth_refresh_token', {
-  id: text('id').primaryKey(),
-  token: text('token').notNull().unique(),
-  clientId: text('client_id')
-    .notNull()
-    .references(() => oauthClient.clientId, { onDelete: 'cascade' }),
-  sessionId: text('session_id').references(() => session.id, {
-    onDelete: 'set null',
-  }),
-  userId: text('user_id')
-    .notNull()
-    .references(() => user.id, { onDelete: 'cascade' }),
-  referenceId: text('reference_id'),
-  authorizationCodeId: text('authorization_code_id'),
-  resources: text('resources').array(),
-  requestedUserInfoClaims: text('requested_user_info_claims').array(),
-  expiresAt: timestamp('expires_at'),
-  createdAt: timestamp('created_at').defaultNow(),
-  revoked: timestamp('revoked'),
-  rotatedAt: timestamp('rotated_at'),
-  rotationReplayResponse: text('rotation_replay_response'),
-  rotationReplayExpiresAt: timestamp('rotation_replay_expires_at'),
-  authTime: timestamp('auth_time'),
-  confirmation: jsonb('confirmation'),
-  scopes: text('scopes').array().notNull(),
-});
+export const oauthRefreshToken = pgTable(
+  'oauth_refresh_token',
+  {
+    id: text('id').primaryKey(),
+    tenantId: text('tenant_id').references(() => tenant.id, {
+      onDelete: 'cascade',
+    }),
+    token: text('token').notNull().unique(),
+    clientId: text('client_id')
+      .notNull()
+      .references(() => oauthClient.clientId, { onDelete: 'cascade' }),
+    sessionId: text('session_id').references(() => session.id, {
+      onDelete: 'set null',
+    }),
+    userId: text('user_id')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    referenceId: text('reference_id'),
+    authorizationCodeId: text('authorization_code_id'),
+    resources: text('resources').array(),
+    requestedUserInfoClaims: text('requested_user_info_claims').array(),
+    expiresAt: timestamp('expires_at'),
+    createdAt: timestamp('created_at').defaultNow(),
+    revoked: timestamp('revoked'),
+    rotatedAt: timestamp('rotated_at'),
+    rotationReplayResponse: text('rotation_replay_response'),
+    rotationReplayExpiresAt: timestamp('rotation_replay_expires_at'),
+    authTime: timestamp('auth_time'),
+    confirmation: jsonb('confirmation'),
+    scopes: text('scopes').array().notNull(),
+  },
+  (table) => [index('idx_oauth_refresh_token_tenant_id').on(table.tenantId)],
+);
 
-export const oauthAccessToken = pgTable('oauth_access_token', {
-  id: text('id').primaryKey(),
-  token: text('token').unique(),
-  clientId: text('client_id')
-    .notNull()
-    .references(() => oauthClient.clientId, { onDelete: 'cascade' }),
-  sessionId: text('session_id').references(() => session.id, {
-    onDelete: 'set null',
-  }),
-  userId: text('user_id').references(() => user.id, { onDelete: 'cascade' }),
-  referenceId: text('reference_id'),
-  authorizationCodeId: text('authorization_code_id'),
-  resources: text('resources').array(),
-  requestedUserInfoClaims: text('requested_user_info_claims').array(),
-  refreshId: text('refresh_id').references(() => oauthRefreshToken.id, {
-    onDelete: 'set null',
-  }),
-  expiresAt: timestamp('expires_at'),
-  createdAt: timestamp('created_at').defaultNow(),
-  revoked: timestamp('revoked'),
-  confirmation: jsonb('confirmation'),
-  scopes: text('scopes').array().notNull(),
-});
+export const oauthAccessToken = pgTable(
+  'oauth_access_token',
+  {
+    id: text('id').primaryKey(),
+    tenantId: text('tenant_id').references(() => tenant.id, {
+      onDelete: 'cascade',
+    }),
+    token: text('token').unique(),
+    clientId: text('client_id')
+      .notNull()
+      .references(() => oauthClient.clientId, { onDelete: 'cascade' }),
+    sessionId: text('session_id').references(() => session.id, {
+      onDelete: 'set null',
+    }),
+    userId: text('user_id').references(() => user.id, { onDelete: 'cascade' }),
+    referenceId: text('reference_id'),
+    authorizationCodeId: text('authorization_code_id'),
+    resources: text('resources').array(),
+    requestedUserInfoClaims: text('requested_user_info_claims').array(),
+    refreshId: text('refresh_id').references(() => oauthRefreshToken.id, {
+      onDelete: 'set null',
+    }),
+    expiresAt: timestamp('expires_at'),
+    createdAt: timestamp('created_at').defaultNow(),
+    revoked: timestamp('revoked'),
+    confirmation: jsonb('confirmation'),
+    scopes: text('scopes').array().notNull(),
+  },
+  (table) => [index('idx_oauth_access_token_tenant_id').on(table.tenantId)],
+);
 
-export const oauthConsent = pgTable('oauth_consent', {
-  id: text('id').primaryKey(),
-  clientId: text('client_id')
-    .notNull()
-    .references(() => oauthClient.clientId, { onDelete: 'cascade' }),
-  userId: text('user_id').references(() => user.id, { onDelete: 'cascade' }),
-  referenceId: text('reference_id'),
-  resources: text('resources').array(),
-  requestedUserInfoClaims: text('requested_user_info_claims').array(),
-  scopes: text('scopes').array().notNull(),
-  createdAt: timestamp('created_at').defaultNow(),
-  updatedAt: timestamp('updated_at').defaultNow(),
-});
+export const oauthConsent = pgTable(
+  'oauth_consent',
+  {
+    id: text('id').primaryKey(),
+    tenantId: text('tenant_id').references(() => tenant.id, {
+      onDelete: 'cascade',
+    }),
+    clientId: text('client_id')
+      .notNull()
+      .references(() => oauthClient.clientId, { onDelete: 'cascade' }),
+    userId: text('user_id').references(() => user.id, { onDelete: 'cascade' }),
+    referenceId: text('reference_id'),
+    resources: text('resources').array(),
+    requestedUserInfoClaims: text('requested_user_info_claims').array(),
+    scopes: text('scopes').array().notNull(),
+    createdAt: timestamp('created_at').defaultNow(),
+    updatedAt: timestamp('updated_at').defaultNow(),
+  },
+  (table) => [index('idx_oauth_consent_tenant_id').on(table.tenantId)],
+);
 
 export const oauthClientAssertion = pgTable('oauth_client_assertion', {
   id: text('id').primaryKey(),

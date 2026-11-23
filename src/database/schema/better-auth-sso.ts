@@ -7,11 +7,15 @@ import {
   index,
 } from 'drizzle-orm/pg-core';
 import { user } from './better-auth-user';
+import { tenant } from './tenant';
 
 export const ssoProvider = pgTable(
   'sso_provider',
   {
     id: text('id').primaryKey(),
+    tenantId: text('tenant_id').references(() => tenant.id, {
+      onDelete: 'cascade',
+    }),
     issuer: text('issuer').notNull(),
     oidcConfig: text('oidc_config'),
     samlConfig: text('saml_config'),
@@ -23,6 +27,7 @@ export const ssoProvider = pgTable(
     createdAt: timestamp('created_at').defaultNow(),
   },
   (table) => [
+    index('idx_sso_provider_tenant_id').on(table.tenantId),
     index('idx_sso_provider_domain').on(table.domain),
     index('idx_sso_provider_org_id').on(table.organizationId),
   ],

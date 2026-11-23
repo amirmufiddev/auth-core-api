@@ -6,11 +6,15 @@ import {
   timestamp,
   index,
 } from 'drizzle-orm/pg-core';
+import { tenant } from './tenant';
 
 export const apikey = pgTable(
   'apikey',
   {
     id: text('id').primaryKey(),
+    tenantId: text('tenant_id').references(() => tenant.id, {
+      onDelete: 'cascade',
+    }),
     configId: text('config_id').default('default').notNull(),
     name: text('name'),
     start: text('start'),
@@ -37,6 +41,7 @@ export const apikey = pgTable(
     metadata: text('metadata'),
   },
   (table) => [
+    index('idx_apikey_tenant_id').on(table.tenantId),
     index('idx_apikey_key').on(table.key),
     index('idx_apikey_reference_id').on(table.referenceId),
   ],
