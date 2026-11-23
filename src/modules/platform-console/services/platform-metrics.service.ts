@@ -24,7 +24,7 @@ export class PlatformMetricsService {
     const now = Date.now();
     const since24h = new Date(now - 86400 * 1000);
     const fourteenDaysAgo = new Date(now - 13 * 86400000);
-    fourteenDaysAgo.setHours(0, 0, 0, 0);
+    fourteenDaysAgo.setUTCHours(0, 0, 0, 0);
 
     const [
       userStats,
@@ -47,7 +47,7 @@ export class PlatformMetricsService {
 
     const signInTrend = Array.from({ length: 14 }, (_, idx) => {
       const dayStart = new Date(now - (13 - idx) * 86400000);
-      dayStart.setHours(0, 0, 0, 0);
+      dayStart.setUTCHours(0, 0, 0, 0);
       const isoDay = dayStart.toISOString().slice(0, 10);
       const totalDay =
         (sessionMap.get(isoDay) ?? 0) + (auditMap.get(isoDay) ?? 0);
@@ -56,6 +56,7 @@ export class PlatformMetricsService {
         date: dayStart.toLocaleDateString('id-ID', {
           day: '2-digit',
           month: 'short',
+          timeZone: 'UTC',
         }),
         signIns: totalDay,
         tokensIssued: totalDay * 2,

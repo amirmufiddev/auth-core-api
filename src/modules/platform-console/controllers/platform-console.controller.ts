@@ -16,6 +16,10 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Session } from '@thallesp/nestjs-better-auth';
 import { RequirePlatformPermission } from '@/modules/rbac';
 import {
+  normalizeCursorPagination,
+  normalizePagination,
+} from '../dto/pagination.util';
+import {
   BanConsoleUserDto,
   CreateApiKeyDto,
   CreateConsoleOrgDto,
@@ -101,9 +105,10 @@ export class PlatformConsoleController {
     @Query('sortBy') sortBy?: string,
     @Query('sortDir') sortDir?: string,
   ) {
+    const paging = normalizePagination(Number(page), Number(pageSize));
     return this.usersService.listUsers({
-      page: Number(page) || 0,
-      pageSize: Math.min(100, Number(pageSize) || 10),
+      page: paging.page,
+      pageSize: paging.pageSize,
       search,
       role,
       status,
@@ -206,9 +211,10 @@ export class PlatformConsoleController {
     @Query('pageSize') pageSize = '10',
     @Query('search') search?: string,
   ) {
+    const paging = normalizePagination(Number(page), Number(pageSize));
     return this.organizationsService.listOrganizations({
-      page: Number(page) || 0,
-      pageSize: Math.min(100, Number(pageSize) || 10),
+      page: paging.page,
+      pageSize: paging.pageSize,
       search,
     });
   }
@@ -313,9 +319,10 @@ export class PlatformConsoleController {
     @Query('status') status?: string,
     @Query('sinceDate') sinceDate?: string,
   ) {
+    const paging = normalizePagination(Number(page), Number(pageSize));
     return this.sessionsService.listSessions({
-      page: Number(page) || 0,
-      pageSize: Math.min(100, Number(pageSize) || 10),
+      page: paging.page,
+      pageSize: paging.pageSize,
       search,
       status,
       sinceDate,
@@ -349,9 +356,10 @@ export class PlatformConsoleController {
     @Query('pageSize') pageSize = '10',
     @Query('search') search?: string,
   ) {
+    const paging = normalizePagination(Number(page), Number(pageSize));
     return this.apiKeysService.listApiKeys({
-      page: Number(page) || 0,
-      pageSize: Math.min(100, Number(pageSize) || 10),
+      page: paging.page,
+      pageSize: paging.pageSize,
       search,
     });
   }
@@ -396,9 +404,10 @@ export class PlatformConsoleController {
     @Query('pageSize') pageSize = '10',
     @Query('search') search?: string,
   ) {
+    const paging = normalizePagination(Number(page), Number(pageSize));
     return this.oauthSsoService.listOAuthClients({
-      page: Number(page) || 0,
-      pageSize: Math.min(100, Number(pageSize) || 10),
+      page: paging.page,
+      pageSize: paging.pageSize,
       search,
     });
   }
@@ -464,9 +473,10 @@ export class PlatformConsoleController {
     @Query('fromDate') fromDate?: string,
     @Query('toDate') toDate?: string,
   ) {
+    const paging = normalizeCursorPagination(Number(cursor), Number(limit));
     return this.auditService.fetchAuditLogsPage({
-      cursor: Number(cursor) || 0,
-      limit: Math.min(100, Number(limit) || 25),
+      cursor: paging.cursor,
+      limit: paging.limit,
       search,
       severity,
       category,

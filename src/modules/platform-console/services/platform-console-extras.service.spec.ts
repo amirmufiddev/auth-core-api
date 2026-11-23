@@ -163,6 +163,145 @@ describe('PlatformSessionsService, PlatformAuditService, PlatformMetricsService 
     expect(metrics.signInTrend).toHaveLength(14);
   });
 
+  it('should align getDashboardMetrics 14-day window, SQL day keys, and labels to UTC even in UTC+7', async () => {
+    const originalNow = Date.now;
+    // 2026-11-24T17:30:00Z is 2026-11-25 00:30:00 in UTC+7 (different local date)
+    Date.now = () => Date.parse('2026-11-24T17:30:00.000Z');
+
+    try {
+      const userRepo = {
+        getDashboardStats: mock(() =>
+          Promise.resolve({
+            totalUsers: 4,
+            bannedUsers: 0,
+            twoFactorUsers: 2,
+            authMethodDistribution: [{ method: 'EMAIL', count: 4 }],
+          }),
+        ),
+      } as unknown as IPlatformUserRepository;
+      const sessionRepo = {
+        countActive: mock(() => Promise.resolve(3)),
+        countCreatedByDay: mock(() =>
+          Promise.resolve([{ day: '2026-11-24', count: 5 }]),
+        ),
+      } as unknown as IPlatformSessionRepository;
+      const auditRepo = {
+        countSince: mock(() => Promise.resolve(2)),
+        countCreatedByDay: mock(() =>
+          Promise.resolve([{ day: '2026-11-24', count: 2 }]),
+        ),
+        listRecent: mock(() => Promise.resolve([])),
+      } as unknown as IPlatformAuditRepository;
+
+      const service = new PlatformMetricsService(
+        userRepo,
+        sessionRepo,
+        auditRepo,
+      );
+      const metrics = await service.getDashboardMetrics();
+
+      const sinceArg = (
+        sessionRepo.countCreatedByDay as ReturnType<typeof mock>
+      ).mock.calls[0][0] as Date;
+      expect(sinceArg.toISOString()).toBe('2026-11-11T00:00:00.000Z');
+
+      const expectedLastLabel = new Date(
+        '2026-11-24T00:00:00.000Z',
+      ).toLocaleDateString('id-ID', {
+        day: '2-digit',
+        month: 'short',
+        timeZone: 'UTC',
+      });
+      const lastBucket = metrics.signInTrend[13];
+      expect(lastBucket.date).toBe(expectedLastLabel);
+      expect(lastBucket.signIns).toBe(7);
+      expect(lastBucket.tokensIssued).toBe(14);
+    } finally {
+      Date.now = originalNow;
+    }
+  });
+
+  it('should clamp negative cursor and negative limit in PlatformAuditService.fetchAuditLogsPage', async () => {
+    const auditRepo: IPlatformAuditRepository = {
+      create: mock(() => Promise.resolve(undefined)),
+      listPaginated: mock(() => Promise.resolve({ items: [], total: 30 })),
+      listRecent: mock(() => Promise.resolve([])),
+      countSince: mock(() => Promise.resolve(0)),
+      countCreatedByDay: mock(() => Promise.resolve([])),
+    };
+    const featureConfig = {
+      assertFeatureEnabled: mock(() => undefined),
+      isFeatureEnabled: mock(() => true),
+    } as any;
+
+    const service = new PlatformAuditService(auditRepo, featureConfig);
+    const page = await service.fetchAuditLogsPage({
+      cursor: -10,
+      limit: -5,
+    });
+
+    expect(auditRepo.listPaginated).toHaveBeenCalledWith({
+      cursor: 0,
+      limit: 1,
+    });
+    expect(page.nextCursor).toBe(1);
+    expect(page.totalCount).toBe(30);
+  });
+
+  it('should clamp negative and oversized pagination params in PlatformConsoleController', async () => {
+    const usersService = {
+      listUsers: mock(() => Promise.resolve({ items: [], total: 0 })),
+    } as any;
+    const organizationsService = {
+      listOrganizations: mock(() => Promise.resolve({ items: [], total: 0 })),
+    } as any;
+    const auditService = {
+      fetchAuditLogsPage: mock(() =>
+        Promise.resolve({ items: [], nextCursor: null, totalCount: 0 }),
+      ),
+    } as any;
+
+    const controller = new PlatformConsoleController(
+      usersService,
+      {} as any,
+      organizationsService,
+      {} as any,
+      {} as any,
+      {} as any,
+      auditService,
+      {} as any,
+    );
+
+    await controller.listUsers('-2', '-5');
+    expect(usersService.listUsers).toHaveBeenCalledWith({
+      page: 0,
+      pageSize: 1,
+      search: undefined,
+      role: undefined,
+      status: undefined,
+      sortBy: undefined,
+      sortDir: undefined,
+    });
+
+    await controller.listOrganizations('-1', '500');
+    expect(organizationsService.listOrganizations).toHaveBeenCalledWith({
+      page: 0,
+      pageSize: 100,
+      search: undefined,
+    });
+
+    await controller.listAuditLogs('-10', '-5');
+    expect(auditService.fetchAuditLogsPage).toHaveBeenCalledWith({
+      cursor: 0,
+      limit: 1,
+      search: undefined,
+      severity: undefined,
+      category: undefined,
+      fromDate: undefined,
+      toDate: undefined,
+    });
+  });
+
   it('should attach @RequirePlatformPermission metadata to protected routes and omit it on /me and GET /auth-config', () => {
     const getPerm = (target: object, method: string) =>
       Reflect.getMetadata(

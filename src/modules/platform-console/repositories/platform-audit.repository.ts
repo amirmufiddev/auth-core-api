@@ -15,6 +15,7 @@ import { NodePgDatabase } from 'drizzle-orm/node-postgres';
 import { DRIZZLE } from '@/database/database.constants';
 import * as schema from '@/database/schema';
 import type { AuditTrailLog } from '@/database/schema';
+import { normalizeCursorPagination } from '../dto/pagination.util';
 import type {
   CreatePlatformAuditRecord,
   DailyTrendCount,
@@ -73,7 +74,10 @@ export class PlatformAuditRepository implements IPlatformAuditRepository {
     }
 
     const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
-    const offset = Math.max(0, query.cursor);
+    const { cursor: offset, limit } = normalizeCursorPagination(
+      query.cursor,
+      query.limit,
+    );
 
     const [items, countRows] = await Promise.all([
       this.db
@@ -81,7 +85,7 @@ export class PlatformAuditRepository implements IPlatformAuditRepository {
         .from(schema.auditTrailLogs)
         .where(whereClause)
         .orderBy(desc(schema.auditTrailLogs.createdAt))
-        .limit(query.limit)
+        .limit(limit)
         .offset(offset),
       this.db
         .select({ total: count() })
@@ -100,7 +104,7 @@ export class PlatformAuditRepository implements IPlatformAuditRepository {
       .select()
       .from(schema.auditTrailLogs)
       .orderBy(desc(schema.auditTrailLogs.createdAt))
-      .limit(limit);
+      .limit(Math.max(1, limit));
   }
 
   async countSince(since: Date): Promise<number> {
@@ -112,7 +116,7 @@ export class PlatformAuditRepository implements IPlatformAuditRepository {
   }
 
   async countCreatedByDay(since: Date): Promise<DailyTrendCount[]> {
-    const dayExpr = sql<string>`to_char(date_trunc('day', ${schema.auditTrailLogs.createdAt}), 'YYYY-MM-DD')`;
+    const dayExpr = sql<string>`to_char(date_trunc('day', ${schema.auditTrailLogs.createdAt} AT TIME ZONE 'UTC', 'UTC') AT TIME ZONE 'UTC', 'YYYY-MM-DD')`;
     const rows = await this.db
       .select({
         day: dayExpr,

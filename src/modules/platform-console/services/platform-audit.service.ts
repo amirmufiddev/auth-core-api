@@ -1,6 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
 import type { AuditTrailLog } from '@/database/schema';
 import { AuthFeatureConfigService } from '@/modules/auth';
+import { normalizeCursorPagination } from '../dto/pagination.util';
 import {
   type ConsoleActor,
   type IPlatformAuditRepository,
@@ -63,8 +64,16 @@ export class PlatformAuditService {
   async fetchAuditLogsPage(query: ListAuditLogsQuery) {
     this.featureConfigService.assertFeatureEnabled('auditLogs');
 
-    const { items, total } = await this.auditRepo.listPaginated(query);
-    const end = query.cursor + query.limit;
+    const { cursor, limit } = normalizeCursorPagination(
+      query.cursor,
+      query.limit,
+    );
+    const { items, total } = await this.auditRepo.listPaginated({
+      ...query,
+      cursor,
+      limit,
+    });
+    const end = cursor + limit;
 
     return {
       items: items.map(mapAuditLogRow),

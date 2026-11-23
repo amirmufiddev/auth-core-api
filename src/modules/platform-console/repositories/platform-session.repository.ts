@@ -16,6 +16,7 @@ import { NodePgDatabase } from 'drizzle-orm/node-postgres';
 import { DRIZZLE } from '@/database/database.constants';
 import * as schema from '@/database/schema';
 import type { Session } from '@/database/schema';
+import { normalizePagination } from '../dto/pagination.util';
 import type {
   DailyTrendCount,
   IPlatformSessionRepository,
@@ -62,7 +63,10 @@ export class PlatformSessionRepository implements IPlatformSessionRepository {
     }
 
     const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
-    const offset = Math.max(0, query.page) * Math.max(1, query.pageSize);
+    const { pageSize, offset } = normalizePagination(
+      query.page,
+      query.pageSize,
+    );
 
     const [items, countRows] = await Promise.all([
       this.db
@@ -82,7 +86,7 @@ export class PlatformSessionRepository implements IPlatformSessionRepository {
         .innerJoin(schema.user, eq(schema.session.userId, schema.user.id))
         .where(whereClause)
         .orderBy(desc(schema.session.createdAt))
-        .limit(query.pageSize)
+        .limit(pageSize)
         .offset(offset),
       this.db
         .select({ total: count() })
@@ -133,7 +137,7 @@ export class PlatformSessionRepository implements IPlatformSessionRepository {
   }
 
   async countCreatedByDay(since: Date): Promise<DailyTrendCount[]> {
-    const dayExpr = sql<string>`to_char(date_trunc('day', ${schema.session.createdAt}), 'YYYY-MM-DD')`;
+    const dayExpr = sql<string>`to_char(date_trunc('day', ${schema.session.createdAt} AT TIME ZONE 'UTC', 'UTC') AT TIME ZONE 'UTC', 'YYYY-MM-DD')`;
     const rows = await this.db
       .select({
         day: dayExpr,

@@ -89,4 +89,40 @@ describe('PlatformUserRepository', () => {
     expect(whereCalls[0]).toBeDefined();
     expect(whereCalls[1]).toBeDefined();
   });
+
+  it('should clamp negative page and pageSize before issuing SQL LIMIT and OFFSET', async () => {
+    const limitCalls: number[] = [];
+    const offsetCalls: number[] = [];
+
+    const dbMock = {
+      select: mock((projection?: Record<string, unknown>) => ({
+        from: mock(() => ({
+          where: mock(() => {
+            if (projection && 'total' in projection) {
+              return Promise.resolve([{ total: 0 }]);
+            }
+            return {
+              orderBy: mock(() => ({
+                limit: mock((l: number) => {
+                  limitCalls.push(l);
+                  return {
+                    offset: mock((o: number) => {
+                      offsetCalls.push(o);
+                      return Promise.resolve([]);
+                    }),
+                  };
+                }),
+              })),
+            };
+          }),
+        })),
+      })),
+    } as any;
+
+    const repo = new PlatformUserRepository(dbMock);
+    await repo.listPaginated({ page: -2, pageSize: -5 });
+
+    expect(limitCalls).toEqual([1]);
+    expect(offsetCalls).toEqual([0]);
+  });
 });

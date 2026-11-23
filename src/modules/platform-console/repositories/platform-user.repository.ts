@@ -16,6 +16,7 @@ import { NodePgDatabase } from 'drizzle-orm/node-postgres';
 import { DRIZZLE } from '@/database/database.constants';
 import * as schema from '@/database/schema';
 import type { User } from '@/database/schema';
+import { normalizePagination } from '../dto/pagination.util';
 import type {
   CreatePlatformUserRecord,
   IPlatformUserRepository,
@@ -87,7 +88,10 @@ export class PlatformUserRepository implements IPlatformUserRepository {
     }
 
     const whereClause = and(...conditions);
-    const offset = Math.max(0, query.page) * Math.max(1, query.pageSize);
+    const { pageSize, offset } = normalizePagination(
+      query.page,
+      query.pageSize,
+    );
 
     const [items, countRows] = await Promise.all([
       this.db
@@ -95,7 +99,7 @@ export class PlatformUserRepository implements IPlatformUserRepository {
         .from(schema.user)
         .where(whereClause)
         .orderBy(this.resolveOrderBy(query.sortBy, query.sortDir))
-        .limit(query.pageSize)
+        .limit(pageSize)
         .offset(offset),
       this.db.select({ total: count() }).from(schema.user).where(whereClause),
     ]);

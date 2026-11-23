@@ -4,6 +4,7 @@ import { NodePgDatabase } from 'drizzle-orm/node-postgres';
 import { DRIZZLE } from '@/database/database.constants';
 import * as schema from '@/database/schema';
 import type { Organization } from '@/database/schema';
+import { normalizePagination } from '../dto/pagination.util';
 import type {
   CreateInvitationRecord,
   CreateOrgWithOwnerInput,
@@ -34,7 +35,10 @@ export class PlatformOrganizationRepository implements IPlatformOrganizationRepo
     }
 
     const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
-    const offset = Math.max(0, query.page) * Math.max(1, query.pageSize);
+    const { pageSize, offset } = normalizePagination(
+      query.page,
+      query.pageSize,
+    );
 
     const [items, countRows] = await Promise.all([
       this.db
@@ -42,7 +46,7 @@ export class PlatformOrganizationRepository implements IPlatformOrganizationRepo
         .from(schema.organization)
         .where(whereClause)
         .orderBy(desc(schema.organization.createdAt))
-        .limit(query.pageSize)
+        .limit(pageSize)
         .offset(offset),
       this.db
         .select({ total: count() })

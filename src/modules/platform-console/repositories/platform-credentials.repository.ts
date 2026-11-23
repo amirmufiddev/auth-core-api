@@ -4,6 +4,7 @@ import { NodePgDatabase } from 'drizzle-orm/node-postgres';
 import { DRIZZLE } from '@/database/database.constants';
 import * as schema from '@/database/schema';
 import type { ApiKey } from '@/database/schema';
+import { normalizePagination } from '../dto/pagination.util';
 import type {
   ApiKeyWithOwnerRow,
   CreateOAuthClientRecord,
@@ -40,7 +41,10 @@ export class PlatformApiKeyRepository implements IPlatformApiKeyRepository {
     }
 
     const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
-    const offset = Math.max(0, query.page) * Math.max(1, query.pageSize);
+    const { pageSize, offset } = normalizePagination(
+      query.page,
+      query.pageSize,
+    );
 
     const [rows, countRows] = await Promise.all([
       this.db
@@ -52,7 +56,7 @@ export class PlatformApiKeyRepository implements IPlatformApiKeyRepository {
         .leftJoin(schema.user, eq(schema.apikey.referenceId, schema.user.id))
         .where(whereClause)
         .orderBy(desc(schema.apikey.createdAt))
-        .limit(query.pageSize)
+        .limit(pageSize)
         .offset(offset),
       this.db
         .select({ total: count() })
@@ -110,7 +114,10 @@ export class PlatformOAuthClientRepository implements IPlatformOAuthClientReposi
     }
 
     const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
-    const offset = Math.max(0, query.page) * Math.max(1, query.pageSize);
+    const { pageSize, offset } = normalizePagination(
+      query.page,
+      query.pageSize,
+    );
 
     const [items, countRows] = await Promise.all([
       this.db
@@ -118,7 +125,7 @@ export class PlatformOAuthClientRepository implements IPlatformOAuthClientReposi
         .from(schema.oauthClient)
         .where(whereClause)
         .orderBy(desc(schema.oauthClient.createdAt))
-        .limit(query.pageSize)
+        .limit(pageSize)
         .offset(offset),
       this.db
         .select({ total: count() })
