@@ -100,13 +100,13 @@ export class CustomerPortalService {
 
   async createTenant(
     ownerUserId: string,
-    input: { name: string; slug: string; tierId?: string },
+    input: { name: string; slug: string },
   ): Promise<TenantRow> {
     return this.tenantService.createTenant({
       name: input.name,
       slug: input.slug,
       ownerUserId,
-      tierId: input.tierId?.trim() || DEFAULT_TIER_ID,
+      tierId: DEFAULT_TIER_ID,
     });
   }
 
@@ -165,21 +165,17 @@ export class CustomerPortalService {
     },
   ): Promise<PortalOAuthClientItem> {
     const tenant = await this.tenantService.getTenantById(tenantId);
+    const maxClients =
+      tenant.tierId === DEFAULT_TIER_ID
+        ? FREE_TIER_MAX_OAUTH_CLIENTS
+        : undefined;
 
-    if (tenant.tierId === DEFAULT_TIER_ID) {
-      const currentCount = await this.oauthRepo.countByTenant(tenantId);
-      if (currentCount >= FREE_TIER_MAX_OAUTH_CLIENTS) {
-        throw BusinessError.forbidden(
-          'Tier Free hanya mengizinkan maksimal 1 OAuth client per tenant.',
-          'TIER_CLIENT_LIMIT_REACHED',
-          {
-            tenantId,
-            tierId: tenant.tierId,
-            limit: FREE_TIER_MAX_OAUTH_CLIENTS,
-          },
-        );
-      }
-    }
+    const normalizedScopes = Array.from(
+      new Set(input.scopes.map((scope) => scope.trim()).filter(Boolean)),
+    );
+    const normalizedRedirectUris = input.redirectUris
+      .map((uri) => uri.trim())
+      .filter(Boolean);
 
     const slug = input.name
       .toLowerCase()
@@ -197,21 +193,24 @@ export class CustomerPortalService {
           .digest('base64url')
       : null;
 
-    const created = await this.oauthRepo.create({
-      id: `oa_${crypto.randomUUID()}`,
-      tenantId,
-      clientId,
-      clientSecret: hashedClientSecret,
-      name: input.name.trim(),
-      redirectUris: input.redirectUris,
-      scopes: input.scopes,
-      requirePKCE: input.pkceRequired,
-      tokenEndpointAuthMethod:
-        input.type === 'oidc-public' ? 'none' : 'client_secret_basic',
-      applicationType: input.type === 'oidc-public' ? 'native' : 'web',
-      userId: actorId,
-      metadata: { clientType: input.type },
-    });
+    const created = await this.oauthRepo.createWithQuotaCheck(
+      {
+        id: `oa_${crypto.randomUUID()}`,
+        tenantId,
+        clientId,
+        clientSecret: hashedClientSecret,
+        name: input.name.trim(),
+        redirectUris: normalizedRedirectUris,
+        scopes: normalizedScopes,
+        requirePKCE: input.pkceRequired,
+        tokenEndpointAuthMethod:
+          input.type === 'oidc-public' ? 'none' : 'client_secret_basic',
+        applicationType: input.type === 'oidc-public' ? 'native' : 'web',
+        userId: actorId,
+        metadata: { clientType: input.type },
+      },
+      maxClients,
+    );
 
     return this.mapOAuthClient(created, plainClientSecret ?? undefined);
   }

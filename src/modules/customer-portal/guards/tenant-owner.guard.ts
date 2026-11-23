@@ -35,7 +35,7 @@ export class TenantOwnerGuard implements CanActivate {
     const request = context.switchToHttp().getRequest<PortalSessionRequest>();
     const user = request?.session?.user;
 
-    if (!user) {
+    if (!user || !user.id) {
       throw new UnauthorizedException('Sesi login diperlukan.');
     }
 
@@ -46,12 +46,6 @@ export class TenantOwnerGuard implements CanActivate {
     }
 
     if (user.tenantId === undefined) {
-      if (!user.id) {
-        throw new ForbiddenException(
-          'Hanya akun platform yang dapat mengakses portal pelanggan.',
-        );
-      }
-
       const [dbUser] = await this.db
         .select({ tenantId: schema.user.tenantId })
         .from(schema.user)
@@ -63,12 +57,6 @@ export class TenantOwnerGuard implements CanActivate {
           'Hanya akun platform yang dapat mengakses portal pelanggan.',
         );
       }
-    }
-
-    if (!user.id) {
-      throw new ForbiddenException(
-        'Identitas pemilik tenant tidak valid pada sesi.',
-      );
     }
 
     const tenantId = request.params?.tenantId;

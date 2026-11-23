@@ -2,6 +2,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import { and, count, desc, eq, ilike, or, type SQL } from 'drizzle-orm';
 import { NodePgDatabase } from 'drizzle-orm/node-postgres';
 import { clampZeroBasedPagination } from '@/common/dto/pagination.helper';
+import { BusinessError } from '@/common/errors/business-error';
 import { DRIZZLE } from '@/database/database.constants';
 import * as schema from '@/database/schema';
 import type {
@@ -59,38 +60,61 @@ export class PortalOAuthClientRepository implements IPortalOAuthClientRepository
     };
   }
 
-  async countByTenant(tenantId: string): Promise<number> {
-    const [row] = await this.db
-      .select({ total: count() })
-      .from(schema.oauthClient)
-      .where(eq(schema.oauthClient.tenantId, tenantId));
-
-    return Number(row?.total ?? 0);
-  }
-
-  async create(
+  async createWithQuotaCheck(
     input: CreatePortalOAuthClientRecord,
+    maxClients?: number,
   ): Promise<PortalOAuthClientRow> {
-    const [created] = await this.db
-      .insert(schema.oauthClient)
-      .values({
-        id: input.id,
-        tenantId: input.tenantId,
-        clientId: input.clientId,
-        clientSecret: input.clientSecret,
-        name: input.name,
-        redirectUris: input.redirectUris,
-        scopes: input.scopes,
-        requirePKCE: input.requirePKCE,
-        tokenEndpointAuthMethod: input.tokenEndpointAuthMethod,
-        applicationType: input.applicationType,
-        disabled: false,
-        userId: input.userId,
-        metadata: input.metadata,
-      })
-      .returning();
+    return this.db.transaction(async (tx) => {
+      if (maxClients !== undefined) {
+        const [lockedTenant] = await tx
+          .select({ id: schema.tenant.id })
+          .from(schema.tenant)
+          .where(eq(schema.tenant.id, input.tenantId))
+          .for('update');
 
-    return created;
+        if (!lockedTenant) {
+          throw BusinessError.notFound('Tenant', input.tenantId);
+        }
+
+        const [row] = await tx
+          .select({ total: count() })
+          .from(schema.oauthClient)
+          .where(eq(schema.oauthClient.tenantId, input.tenantId));
+
+        const currentCount = Number(row?.total ?? 0);
+        if (currentCount >= maxClients) {
+          throw BusinessError.forbidden(
+            'Tier Free hanya mengizinkan maksimal 1 OAuth client per tenant.',
+            'TIER_CLIENT_LIMIT_REACHED',
+            {
+              tenantId: input.tenantId,
+              limit: maxClients,
+            },
+          );
+        }
+      }
+
+      const [created] = await tx
+        .insert(schema.oauthClient)
+        .values({
+          id: input.id,
+          tenantId: input.tenantId,
+          clientId: input.clientId,
+          clientSecret: input.clientSecret,
+          name: input.name,
+          redirectUris: input.redirectUris,
+          scopes: input.scopes,
+          requirePKCE: input.requirePKCE,
+          tokenEndpointAuthMethod: input.tokenEndpointAuthMethod,
+          applicationType: input.applicationType,
+          disabled: false,
+          userId: input.userId,
+          metadata: input.metadata,
+        })
+        .returning();
+
+      return created;
+    });
   }
 
   async deleteByTenantAndId(tenantId: string, id: string): Promise<boolean> {

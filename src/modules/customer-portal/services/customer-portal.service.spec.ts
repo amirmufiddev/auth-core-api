@@ -1,6 +1,7 @@
 import 'reflect-metadata';
 import * as crypto from 'node:crypto';
 import {
+  BadRequestException,
   ExecutionContext,
   ForbiddenException,
   UnauthorizedException,
@@ -8,14 +9,20 @@ import {
 } from '@nestjs/common';
 import { describe, expect, it, mock } from 'bun:test';
 import { BusinessError } from '@/common/errors/business-error';
+import * as schema from '@/database/schema';
 import type {
   OAuthClient,
   Tenant,
   TenantBillingRecord,
 } from '@/database/schema';
-import { UpdatePortalTenantDto } from '../dto/customer-portal.dto';
+import {
+  CreatePortalOAuthClientDto,
+  CreatePortalTenantDto,
+  UpdatePortalTenantDto,
+} from '../dto/customer-portal.dto';
 import { TenantOwnerGuard } from '../guards/tenant-owner.guard';
 import type { IPortalOAuthClientRepository } from '../interfaces/portal-oauth-client-repository.interface';
+import { PortalOAuthClientRepository } from '../repositories/portal-oauth-client.repository';
 import { CustomerPortalService } from './customer-portal.service';
 
 describe('CustomerPortalModule (TenantOwnerGuard & CustomerPortalService)', () => {
@@ -117,7 +124,7 @@ describe('CustomerPortalModule (TenantOwnerGuard & CustomerPortalService)', () =
     }) as any;
 
   describe('TenantOwnerGuard', () => {
-    it('should reject unauthenticated requests with 401 UnauthorizedException', async () => {
+    it('should reject unauthenticated requests or missing user.id with 401 UnauthorizedException', async () => {
       const tenantService = {
         getTenantById: mock(() => Promise.resolve(makeTenantRow())),
       } as any;
@@ -130,6 +137,21 @@ describe('CustomerPortalModule (TenantOwnerGuard & CustomerPortalService)', () =
 
       await expect(
         guard.canActivate(createExecutionContext({}, { tenantId: 'ten_1' })),
+      ).rejects.toThrow(UnauthorizedException);
+
+      await expect(
+        guard.canActivate(
+          createExecutionContext({ user: {} }, { tenantId: 'ten_1' }),
+        ),
+      ).rejects.toThrow(UnauthorizedException);
+
+      await expect(
+        guard.canActivate(
+          createExecutionContext(
+            { user: { tenantId: null } },
+            { tenantId: 'ten_1' },
+          ),
+        ),
       ).rejects.toThrow(UnauthorizedException);
     });
 
@@ -178,12 +200,6 @@ describe('CustomerPortalModule (TenantOwnerGuard & CustomerPortalService)', () =
             { user: { id: 'usr_missing' } },
             { tenantId: 'ten_1' },
           ),
-        ),
-      ).rejects.toThrow(ForbiddenException);
-
-      await expect(
-        missingUserGuard.canActivate(
-          createExecutionContext({ user: {} }, { tenantId: 'ten_1' }),
         ),
       ).rejects.toThrow(ForbiddenException);
     });
@@ -238,9 +254,265 @@ describe('CustomerPortalModule (TenantOwnerGuard & CustomerPortalService)', () =
     });
   });
 
+  describe('CustomerPortalDto Validation', () => {
+    const validationPipe = new ValidationPipe({
+      whitelist: true,
+      forbidNonWhitelisted: true,
+      transform: true,
+    });
+
+    it('should reject tierId, status, ownerUserId, billingStatus, and whitespace-only strings on CreatePortalTenantDto', async () => {
+      for (const extraField of [
+        { name: 'Acme', slug: 'acme', tierId: 'tier_enterprise' },
+        { name: 'Acme', slug: 'acme', status: 'active' },
+        { name: 'Acme', slug: 'acme', ownerUserId: 'usr_other' },
+        { name: 'Acme', slug: 'acme', billingStatus: 'active' },
+      ]) {
+        await expect(
+          validationPipe.transform(extraField, {
+            type: 'body',
+            metatype: CreatePortalTenantDto,
+          }),
+        ).rejects.toThrow(BadRequestException);
+      }
+
+      await expect(
+        validationPipe.transform(
+          { name: '   ', slug: 'acme' },
+          { type: 'body', metatype: CreatePortalTenantDto },
+        ),
+      ).rejects.toThrow(BadRequestException);
+
+      await expect(
+        validationPipe.transform(
+          { name: 'Acme', slug: '   ' },
+          { type: 'body', metatype: CreatePortalTenantDto },
+        ),
+      ).rejects.toThrow(BadRequestException);
+
+      const valid = (await validationPipe.transform(
+        { name: '  Acme Corp  ', slug: '  acme-corp  ' },
+        { type: 'body', metatype: CreatePortalTenantDto },
+      )) as CreatePortalTenantDto;
+      expect(valid.name).toBe('Acme Corp');
+      expect(valid.slug).toBe('acme-corp');
+    });
+
+    it('should validate redirectUris, scopes, and non-blank name on CreatePortalOAuthClientDto', async () => {
+      const invalidPayloads = [
+        {
+          name: '   ',
+          type: 'oidc-confidential',
+          redirectUris: ['https://app.example.com/cb'],
+          scopes: ['openid'],
+          pkceRequired: true,
+        },
+        {
+          name: 'App',
+          type: 'oidc-confidential',
+          redirectUris: [],
+          scopes: ['openid'],
+          pkceRequired: true,
+        },
+        {
+          name: 'App',
+          type: 'oidc-confidential',
+          redirectUris: ['not-a-uri'],
+          scopes: ['openid'],
+          pkceRequired: true,
+        },
+        {
+          name: 'App',
+          type: 'oidc-confidential',
+          redirectUris: ['javascript:alert(1)'],
+          scopes: ['openid'],
+          pkceRequired: true,
+        },
+        {
+          name: 'App',
+          type: 'oidc-confidential',
+          redirectUris: ['data:text/html,<script>alert(1)</script>'],
+          scopes: ['openid'],
+          pkceRequired: true,
+        },
+        {
+          name: 'App',
+          type: 'oidc-confidential',
+          redirectUris: ['vbscript:msgbox(1)'],
+          scopes: ['openid'],
+          pkceRequired: true,
+        },
+        {
+          name: 'App',
+          type: 'oidc-confidential',
+          redirectUris: ['https://app.example.com/cb'],
+          scopes: [],
+          pkceRequired: true,
+        },
+        {
+          name: 'App',
+          type: 'oidc-confidential',
+          redirectUris: ['https://app.example.com/cb'],
+          scopes: ['   '],
+          pkceRequired: true,
+        },
+      ];
+
+      for (const payload of invalidPayloads) {
+        await expect(
+          validationPipe.transform(payload, {
+            type: 'body',
+            metatype: CreatePortalOAuthClientDto,
+          }),
+        ).rejects.toThrow(BadRequestException);
+      }
+
+      const accepted = (await validationPipe.transform(
+        {
+          name: '  Valid Client  ',
+          type: 'oidc-public',
+          redirectUris: [
+            'https://app.example.com/cb',
+            'http://localhost:3000/cb',
+            'myapp://callback',
+          ],
+          scopes: [' openid ', 'profile'],
+          pkceRequired: true,
+        },
+        { type: 'body', metatype: CreatePortalOAuthClientDto },
+      )) as CreatePortalOAuthClientDto;
+
+      expect(accepted.name).toBe('Valid Client');
+      expect(accepted.redirectUris).toEqual([
+        'https://app.example.com/cb',
+        'http://localhost:3000/cb',
+        'myapp://callback',
+      ]);
+      expect(accepted.scopes).toEqual(['openid', 'profile']);
+    });
+  });
+
+  describe('PortalOAuthClientRepository.createWithQuotaCheck', () => {
+    const createRepoTxMock = (opts: {
+      lockedTenants?: Array<{ id: string }>;
+      oauthCount?: number;
+      createdRow?: OAuthClient;
+    }) => {
+      const forMock = mock(() =>
+        Promise.resolve(opts.lockedTenants ?? [{ id: 'ten_1' }]),
+      );
+      const txInsertValuesMock = mock(() => ({
+        returning: mock(() =>
+          Promise.resolve([opts.createdRow ?? makeOAuthClientRow()]),
+        ),
+      }));
+
+      const tx = {
+        select: mock(() => ({
+          from: mock((table: unknown) => {
+            if (table === schema.tenant) {
+              return {
+                where: mock(() => ({
+                  for: forMock,
+                })),
+              };
+            }
+            return {
+              where: mock(() =>
+                Promise.resolve([{ total: opts.oauthCount ?? 0 }]),
+              ),
+            };
+          }),
+        })),
+        insert: mock(() => ({
+          values: txInsertValuesMock,
+        })),
+      };
+
+      const db = {
+        transaction: mock((cb: (txArg: typeof tx) => Promise<unknown>) =>
+          cb(tx),
+        ),
+      } as any;
+
+      return { db, tx, forMock, txInsertValuesMock };
+    };
+
+    it('should lock tenant row with FOR UPDATE and reject with 403 TIER_CLIENT_LIMIT_REACHED inside transaction when quota reached', async () => {
+      const { db, tx, forMock } = createRepoTxMock({
+        lockedTenants: [{ id: 'ten_1' }],
+        oauthCount: 1,
+      });
+      const repo = new PortalOAuthClientRepository(db);
+
+      let caught: unknown;
+      try {
+        await repo.createWithQuotaCheck(
+          {
+            id: 'oa_2',
+            tenantId: 'ten_1',
+            clientId: 'second_1234',
+            clientSecret: 'hash',
+            name: 'Second',
+            redirectUris: ['https://app.example.com/cb'],
+            scopes: ['openid'],
+            requirePKCE: true,
+            tokenEndpointAuthMethod: 'client_secret_basic',
+            applicationType: 'web',
+            userId: 'usr_owner',
+            metadata: { clientType: 'oidc-confidential' },
+          },
+          1,
+        );
+      } catch (err) {
+        caught = err;
+      }
+
+      expect(db.transaction).toHaveBeenCalledTimes(1);
+      expect(forMock).toHaveBeenCalledWith('update');
+      expect(tx.insert).not.toHaveBeenCalled();
+      expect(caught).toBeInstanceOf(BusinessError);
+      expect((caught as BusinessError).httpStatus).toBe(403);
+      expect((caught as BusinessError).code).toBe('TIER_CLIENT_LIMIT_REACHED');
+    });
+
+    it('should insert OAuth client inside the same transaction when under quota or unlimited', async () => {
+      const { db, tx, forMock } = createRepoTxMock({
+        lockedTenants: [{ id: 'ten_1' }],
+        oauthCount: 0,
+      });
+      const repo = new PortalOAuthClientRepository(db);
+
+      const created = await repo.createWithQuotaCheck(
+        {
+          id: 'oa_1',
+          tenantId: 'ten_1',
+          clientId: 'first_1234',
+          clientSecret: 'hash',
+          name: 'First',
+          redirectUris: ['https://app.example.com/cb'],
+          scopes: ['openid'],
+          requirePKCE: true,
+          tokenEndpointAuthMethod: 'client_secret_basic',
+          applicationType: 'web',
+          userId: 'usr_owner',
+          metadata: { clientType: 'oidc-confidential' },
+        },
+        1,
+      );
+
+      expect(forMock).toHaveBeenCalledWith('update');
+      expect(tx.insert).toHaveBeenCalledTimes(1);
+      expect(created.id).toBe('oa_1');
+    });
+  });
+
   describe('CustomerPortalService', () => {
     const createServiceMocks = (tenantOverrides: Partial<Tenant> = {}) => {
-      const createdClients: any[] = [];
+      const createdClients: Array<{
+        record: any;
+        maxClients: number | undefined;
+      }> = [];
       const tenantRow = makeTenantRow(tenantOverrides);
 
       const tenantService = {
@@ -297,9 +569,8 @@ describe('CustomerPortalModule (TenantOwnerGuard & CustomerPortalService)', () =
             total: 1,
           }),
         ),
-        countByTenant: mock(() => Promise.resolve(0)),
-        create: mock((record) => {
-          createdClients.push(record);
+        createWithQuotaCheck: mock((record, maxClients) => {
+          createdClients.push({ record, maxClients });
           return Promise.resolve(
             makeOAuthClientRow({
               id: record.id,
@@ -362,7 +633,7 @@ describe('CustomerPortalModule (TenantOwnerGuard & CustomerPortalService)', () =
       expect(resDefault.pageSize).toBe(10);
     });
 
-    it('should create tenant owned by session actor defaulting to tier_free', async () => {
+    it('should create tenant owned by session actor always locked to tier_free', async () => {
       const { service, tenantService } = createServiceMocks();
 
       const created = await service.createTenant('usr_owner', {
@@ -415,7 +686,7 @@ describe('CustomerPortalModule (TenantOwnerGuard & CustomerPortalService)', () =
       ).rejects.toThrow();
     });
 
-    it('should set oauth_client.tenantId, hash clientSecret with SHA-256 base64url, and return plainClientSecret once', async () => {
+    it('should set oauth_client.tenantId, hash clientSecret with SHA-256 base64url, deduplicate scopes, and return plainClientSecret once', async () => {
       const { service, createdClients } = createServiceMocks({
         tierId: 'tier_free',
       });
@@ -426,22 +697,31 @@ describe('CustomerPortalModule (TenantOwnerGuard & CustomerPortalService)', () =
         {
           name: 'Customer Web App',
           type: 'oidc-confidential',
-          redirectUris: ['https://app.acme.test/callback'],
-          scopes: ['openid', 'profile', 'email'],
+          redirectUris: [' https://app.acme.test/callback '],
+          scopes: [' openid ', 'profile', 'openid', 'email'],
           pkceRequired: true,
         },
       );
 
       expect(confidential.tenantId).toBe('ten_1');
       expect(confidential.plainClientSecret).toBeDefined();
-      expect(createdClients[0].tenantId).toBe('ten_1');
-      expect(createdClients[0].userId).toBe('usr_owner');
+      expect(createdClients[0].maxClients).toBe(1);
+      expect(createdClients[0].record.tenantId).toBe('ten_1');
+      expect(createdClients[0].record.userId).toBe('usr_owner');
+      expect(createdClients[0].record.redirectUris).toEqual([
+        'https://app.acme.test/callback',
+      ]);
+      expect(createdClients[0].record.scopes).toEqual([
+        'openid',
+        'profile',
+        'email',
+      ]);
 
       const expectedHash = crypto
         .createHash('sha256')
         .update(confidential.plainClientSecret!)
         .digest('base64url');
-      expect(createdClients[0].clientSecret).toBe(expectedHash);
+      expect(createdClients[0].record.clientSecret).toBe(expectedHash);
 
       const { service: bizService, createdClients: bizClients } =
         createServiceMocks({ tierId: 'tier_business' });
@@ -458,15 +738,24 @@ describe('CustomerPortalModule (TenantOwnerGuard & CustomerPortalService)', () =
         },
       );
 
-      expect(bizClients[0].clientSecret).toBeNull();
+      expect(bizClients[0].maxClients).toBeUndefined();
+      expect(bizClients[0].record.clientSecret).toBeNull();
       expect(pub.plainClientSecret).toBeUndefined();
     });
 
-    it('should reject creating a 2nd OAuth client on Free tier with 403 TIER_CLIENT_LIMIT_REACHED', async () => {
+    it('should pass maxClients=1 on Free tier and propagate 403 TIER_CLIENT_LIMIT_REACHED', async () => {
       const { service, oauthRepo } = createServiceMocks({
         tierId: 'tier_free',
       });
-      (oauthRepo.countByTenant as ReturnType<typeof mock>).mockResolvedValue(1);
+      (
+        oauthRepo.createWithQuotaCheck as ReturnType<typeof mock>
+      ).mockRejectedValue(
+        BusinessError.forbidden(
+          'Tier Free hanya mengizinkan maksimal 1 OAuth client per tenant.',
+          'TIER_CLIENT_LIMIT_REACHED',
+          { tenantId: 'ten_1', limit: 1 },
+        ),
+      );
 
       let caught: unknown;
       try {
@@ -481,17 +770,19 @@ describe('CustomerPortalModule (TenantOwnerGuard & CustomerPortalService)', () =
         caught = err;
       }
 
+      expect(oauthRepo.createWithQuotaCheck).toHaveBeenCalledWith(
+        expect.objectContaining({ tenantId: 'ten_1' }),
+        1,
+      );
       expect(caught).toBeInstanceOf(BusinessError);
       expect((caught as BusinessError).httpStatus).toBe(403);
       expect((caught as BusinessError).code).toBe('TIER_CLIENT_LIMIT_REACHED');
-      expect(oauthRepo.create).not.toHaveBeenCalled();
     });
 
-    it('should allow creating multiple OAuth clients on paid tiers', async () => {
+    it('should allow creating OAuth clients with undefined maxClients on paid tiers', async () => {
       const { service, oauthRepo } = createServiceMocks({
         tierId: 'tier_business',
       });
-      (oauthRepo.countByTenant as ReturnType<typeof mock>).mockResolvedValue(3);
 
       const created = await service.createTenantOAuthClient(
         'ten_1',
@@ -507,7 +798,10 @@ describe('CustomerPortalModule (TenantOwnerGuard & CustomerPortalService)', () =
 
       expect(created.tenantId).toBe('ten_1');
       expect(created.plainClientSecret).toBeDefined();
-      expect(oauthRepo.create).toHaveBeenCalledTimes(1);
+      expect(oauthRepo.createWithQuotaCheck).toHaveBeenCalledWith(
+        expect.objectContaining({ tenantId: 'ten_1' }),
+        undefined,
+      );
     });
 
     it('should scope OAuth client deletion to tenantId and throw 404 on cross-tenant IDOR attempt', async () => {

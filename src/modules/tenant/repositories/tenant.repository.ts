@@ -60,7 +60,7 @@ export class TenantRepository implements ITenantRepository {
       conditions.push(eq(schema.tenant.tierId, query.tierId.trim()));
     }
 
-    if (query.ownerUserId?.trim()) {
+    if (query.ownerUserId !== undefined) {
       conditions.push(eq(schema.tenant.ownerUserId, query.ownerUserId.trim()));
     }
 

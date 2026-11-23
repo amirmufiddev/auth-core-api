@@ -1,6 +1,7 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import {
+  ArrayMinSize,
   IsArray,
   IsBoolean,
   IsIn,
@@ -10,6 +11,8 @@ import {
   Max,
   Min,
   MinLength,
+  registerDecorator,
+  type ValidationOptions,
 } from 'class-validator';
 import type {
   TenantBillingRecordStatus,
@@ -34,27 +37,91 @@ const BILLING_RECORD_STATUSES = [
   'void',
 ] as const;
 
+const DANGEROUS_URI_SCHEMES = new Set([
+  'javascript:',
+  'data:',
+  'vbscript:',
+  'file:',
+  'blob:',
+  'about:',
+]);
+
+const CUSTOM_SCHEME_REGEX = /^[a-z][a-z0-9+.-]*:$/;
+
+const trimString = ({ value }: { value: unknown }) =>
+  typeof value === 'string' ? value.trim() : value;
+
+const trimStringArray = ({ value }: { value: unknown }) =>
+  Array.isArray(value)
+    ? value.map((item) => (typeof item === 'string' ? item.trim() : item))
+    : value;
+
+export function isValidOAuthRedirectUri(uri: unknown): boolean {
+  if (typeof uri !== 'string') return false;
+  const trimmed = uri.trim();
+  if (!trimmed || /\s/.test(trimmed)) return false;
+
+  let parsed: URL;
+  try {
+    parsed = new URL(trimmed);
+  } catch {
+    return false;
+  }
+
+  const protocol = parsed.protocol.toLowerCase();
+  if (DANGEROUS_URI_SCHEMES.has(protocol)) {
+    return false;
+  }
+
+  if (protocol === 'https:' || protocol === 'http:') {
+    return Boolean(parsed.hostname);
+  }
+
+  if (!CUSTOM_SCHEME_REGEX.test(protocol)) {
+    return false;
+  }
+
+  return Boolean(parsed.host || (parsed.pathname && parsed.pathname !== '/'));
+}
+
+export function IsValidOAuthRedirectUri(validationOptions?: ValidationOptions) {
+  return function (object: object, propertyName: string) {
+    registerDecorator({
+      name: 'isValidOAuthRedirectUri',
+      target: object.constructor,
+      propertyName,
+      options: {
+        message: `${propertyName} harus berisi URI redirect OAuth yang valid (https, http, atau custom app scheme yang aman).`,
+        ...validationOptions,
+      },
+      validator: {
+        validate(value: unknown) {
+          if (!Array.isArray(value)) return false;
+          return value.every((item) => isValidOAuthRedirectUri(item));
+        },
+      },
+    });
+  };
+}
+
 export class CreatePortalTenantDto {
   @ApiProperty({ example: 'Acme Corporation' })
+  @Transform(trimString)
   @IsString()
   @MinLength(1)
   name!: string;
 
   @ApiProperty({ example: 'acme-corp' })
+  @Transform(trimString)
   @IsString()
   @MinLength(1)
   slug!: string;
-
-  @ApiPropertyOptional({ example: 'tier_free', default: 'tier_free' })
-  @IsOptional()
-  @IsString()
-  @MinLength(1)
-  tierId?: string;
 }
 
 export class UpdatePortalTenantDto {
   @ApiPropertyOptional({ example: 'Acme Holdings' })
   @IsOptional()
+  @Transform(trimString)
   @IsString()
   @MinLength(1)
   name?: string;
@@ -64,7 +131,9 @@ export class UpdatePortalTenantDto {
       'Slug bersifat immutable; mengirim field ini ditolak 400 TENANT_SLUG_IMMUTABLE',
   })
   @IsOptional()
+  @Transform(trimString)
   @IsString()
+  @MinLength(1)
   slug?: string;
 }
 
@@ -97,6 +166,7 @@ export class ListPortalTenantsQueryDto {
 
 export class CreatePortalOAuthClientDto {
   @ApiProperty({ example: 'Acme Web Portal' })
+  @Transform(trimString)
   @IsString()
   @MinLength(1)
   name!: string;
@@ -106,13 +176,20 @@ export class CreatePortalOAuthClientDto {
   type!: PortalOAuthClientType;
 
   @ApiProperty({ example: ['https://acme.example.com/callback'] })
+  @Transform(trimStringArray)
   @IsArray()
+  @ArrayMinSize(1)
   @IsString({ each: true })
+  @MinLength(1, { each: true })
+  @IsValidOAuthRedirectUri()
   redirectUris!: string[];
 
   @ApiProperty({ example: ['openid', 'profile', 'email'] })
+  @Transform(trimStringArray)
   @IsArray()
+  @ArrayMinSize(1)
   @IsString({ each: true })
+  @MinLength(1, { each: true })
   scopes!: string[];
 
   @ApiProperty({ example: true })

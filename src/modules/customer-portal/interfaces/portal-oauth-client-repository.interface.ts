@@ -34,7 +34,9 @@ export interface IPortalOAuthClientRepository {
   listByTenantPaginated(
     query: ListTenantOAuthClientsQuery,
   ): Promise<{ items: PortalOAuthClientRow[]; total: number }>;
-  countByTenant(tenantId: string): Promise<number>;
-  create(input: CreatePortalOAuthClientRecord): Promise<PortalOAuthClientRow>;
+  createWithQuotaCheck(
+    input: CreatePortalOAuthClientRecord,
+    maxClients?: number,
+  ): Promise<PortalOAuthClientRow>;
   deleteByTenantAndId(tenantId: string, id: string): Promise<boolean>;
 }

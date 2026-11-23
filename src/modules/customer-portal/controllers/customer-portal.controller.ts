@@ -13,7 +13,12 @@ import {
   UseGuards,
   VERSION_NEUTRAL,
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import {
+  ApiBearerAuth,
+  ApiOperation,
+  ApiParam,
+  ApiTags,
+} from '@nestjs/swagger';
 import { Session } from '@thallesp/nestjs-better-auth';
 import { BillingRecordResponseDto } from '@/modules/billing';
 import { TenantResponseDto } from '@/modules/tenant';
@@ -132,6 +137,10 @@ export class CustomerPortalController {
   @Delete(':tenantId/oauth-clients/:clientId')
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({ summary: 'Hapus OAuth client milik tenant' })
+  @ApiParam({
+    name: 'clientId',
+    description: 'Internal OAuth client record ID (oauth_client.id)',
+  })
   async deleteOAuthClient(
     @Param('tenantId') tenantId: string,
     @Param('clientId') clientId: string,
