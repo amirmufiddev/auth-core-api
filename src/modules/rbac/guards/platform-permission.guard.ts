@@ -53,7 +53,28 @@ export class PlatformPermissionGuard implements CanActivate {
     }
 
     if (user.tenantId !== null && user.tenantId !== undefined) {
-      throw new ForbiddenException('Akses platform ditolak untuk user tenant.');
+      throw new ForbiddenException(
+        'Hanya akun platform yang dapat mengakses fitur ini.',
+      );
+    }
+
+    if (user.tenantId === undefined) {
+      if (!user.id) {
+        throw new ForbiddenException(
+          'Hanya akun platform yang dapat mengakses fitur ini.',
+        );
+      }
+      const [dbUser] = await this.db
+        .select({ tenantId: schema.user.tenantId })
+        .from(schema.user)
+        .where(eq(schema.user.id, user.id))
+        .limit(1);
+
+      if (!dbUser || dbUser.tenantId !== null) {
+        throw new ForbiddenException(
+          'Hanya akun platform yang dapat mengakses fitur ini.',
+        );
+      }
     }
 
     const roleSlugs = (user.role ?? '')

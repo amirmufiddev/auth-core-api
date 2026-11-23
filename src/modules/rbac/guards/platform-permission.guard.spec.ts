@@ -5,6 +5,7 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
+import * as schema from '@/database/schema';
 import { RequirePlatformPermission } from '../decorators/require-platform-permission.decorator';
 import { PlatformPermissionGuard } from './platform-permission.guard';
 
@@ -33,6 +34,25 @@ describe('PlatformPermissionGuard', () => {
               Promise.resolve(rows).then(resolve),
           })),
         })),
+      })),
+    }) as any;
+
+  const makeTableAwareDbMock = (opts: {
+    userRows: Array<{ tenantId: string | null }>;
+    roleRows: Array<{ slug: string; permissions: Record<string, string[]> }>;
+  }) =>
+    ({
+      select: mock(() => ({
+        from: mock((table: unknown) => {
+          const rows = table === schema.user ? opts.userRows : opts.roleRows;
+          return {
+            where: mock(() => ({
+              limit: mock(() => Promise.resolve(rows.slice(0, 1))),
+              then: (resolve: (value: typeof rows) => unknown) =>
+                Promise.resolve(rows).then(resolve),
+            })),
+          };
+        }),
       })),
     }) as any;
 
@@ -208,6 +228,100 @@ describe('PlatformPermissionGuard', () => {
           id: 'u_multi',
           role: 'user, auditor',
           tenantId: null,
+        },
+      },
+    );
+
+    await expect(guard.canActivate(ctx)).resolves.toBe(true);
+  });
+
+  it('should reject when session.user.tenantId is undefined and DB user has tenantId or is missing', async () => {
+    class DummyController {
+      @RequirePlatformPermission('auditLog:read')
+      listAuditLogs() {}
+    }
+
+    const roleRows = [
+      {
+        slug: 'admin',
+        permissions: { auditLog: ['read', 'export'] },
+      },
+    ];
+
+    const tenantDb = makeTableAwareDbMock({
+      userRows: [{ tenantId: 'ten_pos' }],
+      roleRows,
+    });
+    const guardTenantDb = new PlatformPermissionGuard(
+      new Reflector(),
+      tenantDb,
+    );
+
+    await expect(
+      guardTenantDb.canActivate(
+        createExecutionContext(DummyController.prototype.listAuditLogs, {
+          user: {
+            id: 'usr_tenant_admin',
+            role: 'admin',
+          },
+        }),
+      ),
+    ).rejects.toThrow(ForbiddenException);
+
+    const missingUserDb = makeTableAwareDbMock({
+      userRows: [],
+      roleRows,
+    });
+    const guardMissingUser = new PlatformPermissionGuard(
+      new Reflector(),
+      missingUserDb,
+    );
+
+    await expect(
+      guardMissingUser.canActivate(
+        createExecutionContext(DummyController.prototype.listAuditLogs, {
+          user: {
+            id: 'usr_missing',
+            role: 'admin',
+          },
+        }),
+      ),
+    ).rejects.toThrow(ForbiddenException);
+
+    await expect(
+      guardMissingUser.canActivate(
+        createExecutionContext(DummyController.prototype.listAuditLogs, {
+          user: {
+            role: 'admin',
+          },
+        }),
+      ),
+    ).rejects.toThrow(ForbiddenException);
+  });
+
+  it('should allow access when session.user.tenantId is undefined but DB user has tenantId === null and required permission', async () => {
+    class DummyController {
+      @RequirePlatformPermission('auditLog:read')
+      listAuditLogs() {}
+    }
+
+    const db = makeTableAwareDbMock({
+      userRows: [{ tenantId: null }],
+      roleRows: [
+        {
+          slug: 'auditor',
+          permissions: { auditLog: ['read', 'export'] },
+        },
+      ],
+    });
+    const guard = new PlatformPermissionGuard(new Reflector(), db);
+
+    const ctx = createExecutionContext(
+      DummyController.prototype.listAuditLogs,
+      {
+        user: {
+          id: 'usr_platform_auditor',
+          role: 'auditor',
         },
       },
     );
