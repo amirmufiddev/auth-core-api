@@ -1,4 +1,4 @@
-import { env, envSchema } from './env.validation';
+import { env, envSchema, validate } from './env.validation';
 
 describe('Environment Validation', () => {
   const originalEnv = process.env;
@@ -232,6 +232,26 @@ describe('Environment Validation', () => {
           'redis://default:secret@localhost:6379',
         );
       }
+    });
+  });
+
+  describe('envSchema multi-tenant defaults', () => {
+    it('should default BETTER_AUTH_PATH to /api/auth and expose multi-tenant env keys', () => {
+      const parsed = validate({
+        DATABASE_URL: 'postgresql://postgres:pass@localhost:5432/authcore',
+        BETTER_AUTH_URL: 'http://localhost:2001',
+        BETTER_AUTH_SECRET: 'a'.repeat(32),
+        BETTER_AUTH_CLIENT_URL: 'http://localhost:2000',
+      });
+      expect(parsed.BETTER_AUTH_PATH).toBe('/api/auth');
+      expect(parsed.TENANT_BASE_DOMAIN).toBe('authcore.local');
+      expect(parsed.PLATFORM_HOSTS).toBe(
+        'localhost,127.0.0.1,auth.authcore.local,console.authcore.local',
+      );
+      expect(parsed.AUTH_CONFIG_ENCRYPTION_KEY).toBe('');
+      expect(parsed.AUTH_CONFIG_ENCRYPTION_KEY_PREV).toBe('');
+      expect(parsed.SOCIAL_CALLBACK_BASE_URL).toBe('');
+      expect(parsed.AUTH_RUNTIME_LRU_MAX).toBe(200);
     });
   });
 });

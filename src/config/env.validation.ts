@@ -61,12 +61,24 @@ export const envSchema = z
     /** BetterAuth Configuration **/
     BETTER_AUTH_URL: z.string().url(),
     BETTER_AUTH_SECRET: z.string().min(32),
-    BETTER_AUTH_PATH: z.string().default('/v1/auth'),
+    BETTER_AUTH_PATH: z.string().default('/api/auth'),
     GOOGLE_CLIENT_ID: z.string().default(''),
     GOOGLE_CLIENT_SECRET: z.string().default(''),
     BETTER_AUTH_CLIENT_URL: z.string().url(),
     BETTER_AUTH_ERROR_PATH: z.string().default('/auth/error'),
     BETTER_AUTH_INVITE_PATH: z.string().default('/auth/accept-invitation'),
+
+    /** Multi-Tenant IAM Configuration **/
+    AUTH_CONFIG_ENCRYPTION_KEY: z.string().optional().default(''),
+    AUTH_CONFIG_ENCRYPTION_KEY_PREV: z.string().optional().default(''),
+    TENANT_BASE_DOMAIN: z.string().default('authcore.local'),
+    PLATFORM_HOSTS: z
+      .string()
+      .default(
+        'localhost,127.0.0.1,auth.authcore.local,console.authcore.local',
+      ),
+    SOCIAL_CALLBACK_BASE_URL: z.string().optional().default(''),
+    AUTH_RUNTIME_LRU_MAX: z.coerce.number().int().positive().default(200),
 
     /** Email Configuration **/
     EMAIL_ENABLED: z
