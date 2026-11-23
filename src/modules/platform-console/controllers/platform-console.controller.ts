@@ -13,7 +13,8 @@ import {
   VERSION_NEUTRAL,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
-import { Roles, Session } from '@thallesp/nestjs-better-auth';
+import { Session } from '@thallesp/nestjs-better-auth';
+import { RequirePlatformPermission } from '@/modules/rbac';
 import {
   BanConsoleUserDto,
   CreateApiKeyDto,
@@ -28,11 +29,16 @@ import {
   UpdateConsoleRoleDto,
   UpdateConsoleUserDto,
   UpdateOrgMemberRoleDto,
-} from '../dto/auth-console.dto';
-import {
-  AuthConsoleService,
-  type ConsoleActor,
-} from '../services/auth-console.service';
+} from '../dto/platform-console.dto';
+import type { ConsoleActor } from '../interfaces';
+import { PlatformApiKeysService } from '../services/platform-api-keys.service';
+import { PlatformAuditService } from '../services/platform-audit.service';
+import { PlatformMetricsService } from '../services/platform-metrics.service';
+import { PlatformOAuthSsoService } from '../services/platform-oauth-sso.service';
+import { PlatformOrganizationsService } from '../services/platform-organizations.service';
+import { PlatformRolesService } from '../services/platform-roles.service';
+import { PlatformSessionsService } from '../services/platform-sessions.service';
+import { PlatformUsersService } from '../services/platform-users.service';
 
 interface AuthSessionContext {
   user?: {
@@ -45,8 +51,17 @@ interface AuthSessionContext {
 @ApiTags('Auth Core Console')
 @ApiBearerAuth()
 @Controller({ path: 'api/authcore', version: VERSION_NEUTRAL })
-export class AuthConsoleController {
-  constructor(private readonly consoleService: AuthConsoleService) {}
+export class PlatformConsoleController {
+  constructor(
+    private readonly usersService: PlatformUsersService,
+    private readonly rolesService: PlatformRolesService,
+    private readonly organizationsService: PlatformOrganizationsService,
+    private readonly sessionsService: PlatformSessionsService,
+    private readonly apiKeysService: PlatformApiKeysService,
+    private readonly oauthSsoService: PlatformOAuthSsoService,
+    private readonly auditService: PlatformAuditService,
+    private readonly metricsService: PlatformMetricsService,
+  ) {}
 
   private extractActor(session: AuthSessionContext | null): ConsoleActor {
     if (!session?.user) {
@@ -64,20 +79,19 @@ export class AuthConsoleController {
     summary: 'Profil lengkap user aktif beserta passkey & provider',
   })
   async getMe(@Session() session: AuthSessionContext | null) {
-    const actor = this.extractActor(session);
-    return this.consoleService.getMe(actor.id);
+    return this.usersService.getMe(this.extractActor(session).id);
   }
 
   @Get('metrics')
-  @Roles(['super_admin', 'admin'])
+  @RequirePlatformPermission('user:read')
   @ApiOperation({ summary: 'KPI & metrik ringkas Auth Core' })
   async getMetrics() {
-    return this.consoleService.getDashboardMetrics();
+    return this.metricsService.getDashboardMetrics();
   }
 
   @Get('users')
-  @Roles(['super_admin', 'admin'])
-  @ApiOperation({ summary: 'Daftar user terpaginasi' })
+  @RequirePlatformPermission('user:read')
+  @ApiOperation({ summary: 'Daftar user platform terpaginasi' })
   async listUsers(
     @Query('page') page = '0',
     @Query('pageSize') pageSize = '10',
@@ -87,7 +101,7 @@ export class AuthConsoleController {
     @Query('sortBy') sortBy?: string,
     @Query('sortDir') sortDir?: string,
   ) {
-    return this.consoleService.listUsers({
+    return this.usersService.listUsers({
       page: Number(page) || 0,
       pageSize: Math.min(100, Number(pageSize) || 10),
       search,
@@ -99,35 +113,35 @@ export class AuthConsoleController {
   }
 
   @Post('users')
-  @Roles(['super_admin', 'admin'])
-  @ApiOperation({ summary: 'Buat user baru dari konsol admin' })
+  @RequirePlatformPermission('user:create')
+  @ApiOperation({ summary: 'Buat user platform baru dari konsol admin' })
   async createUser(
     @Body() body: CreateConsoleUserDto,
     @Session() session: AuthSessionContext | null,
   ) {
-    return this.consoleService.createUser(body, this.extractActor(session));
+    return this.usersService.createUser(body, this.extractActor(session));
   }
 
   @Patch('users/:id')
-  @Roles(['super_admin', 'admin'])
-  @ApiOperation({ summary: 'Perbarui data user' })
+  @RequirePlatformPermission('user:update')
+  @ApiOperation({ summary: 'Perbarui data user platform' })
   async updateUser(
     @Param('id') id: string,
     @Body() body: UpdateConsoleUserDto,
     @Session() session: AuthSessionContext | null,
   ) {
-    return this.consoleService.updateUser(id, body, this.extractActor(session));
+    return this.usersService.updateUser(id, body, this.extractActor(session));
   }
 
   @Post('users/:id/ban')
-  @Roles(['super_admin', 'admin'])
-  @ApiOperation({ summary: 'Ban atau unban user' })
+  @RequirePlatformPermission('user:ban')
+  @ApiOperation({ summary: 'Ban atau unban user platform' })
   async banUser(
     @Param('id') id: string,
     @Body() body: BanConsoleUserDto,
     @Session() session: AuthSessionContext | null,
   ) {
-    return this.consoleService.banOrUnbanUser(
+    return this.usersService.banOrUnbanUser(
       id,
       body,
       this.extractActor(session),
@@ -135,64 +149,64 @@ export class AuthConsoleController {
   }
 
   @Delete('users/:id')
-  @Roles(['super_admin', 'admin'])
+  @RequirePlatformPermission('user:delete')
   @HttpCode(HttpStatus.NO_CONTENT)
-  @ApiOperation({ summary: 'Hapus user permanen' })
+  @ApiOperation({ summary: 'Hapus user platform permanen' })
   async deleteUser(
     @Param('id') id: string,
     @Session() session: AuthSessionContext | null,
   ): Promise<void> {
-    await this.consoleService.deleteUser(id, this.extractActor(session));
+    await this.usersService.deleteUser(id, this.extractActor(session));
   }
 
   @Get('roles')
-  @Roles(['super_admin', 'admin'])
+  @RequirePlatformPermission('role:read')
   @ApiOperation({ summary: 'Daftar role RBAC Auth Core' })
   async listRoles() {
-    return this.consoleService.listRoles();
+    return this.rolesService.listRoles();
   }
 
   @Post('roles')
-  @Roles(['super_admin', 'admin'])
+  @RequirePlatformPermission('role:create')
   @ApiOperation({ summary: 'Buat role RBAC baru' })
   async createRole(
     @Body() body: CreateConsoleRoleDto,
     @Session() session: AuthSessionContext | null,
   ) {
-    return this.consoleService.createRole(body, this.extractActor(session));
+    return this.rolesService.createRole(body, this.extractActor(session));
   }
 
   @Patch('roles/:id')
-  @Roles(['super_admin', 'admin'])
+  @RequirePlatformPermission('role:update')
   @ApiOperation({ summary: 'Perbarui matriks permission role' })
   async updateRole(
     @Param('id') id: string,
     @Body() body: UpdateConsoleRoleDto,
     @Session() session: AuthSessionContext | null,
   ) {
-    return this.consoleService.updateRole(id, body, this.extractActor(session));
+    return this.rolesService.updateRole(id, body, this.extractActor(session));
   }
 
   @Delete('roles/:id')
-  @Roles(['super_admin', 'admin'])
+  @RequirePlatformPermission('role:delete')
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({ summary: 'Hapus role kustom' })
   async deleteRole(
     @Param('id') id: string,
     @Session() session: AuthSessionContext | null,
   ): Promise<void> {
-    await this.consoleService.deleteRole(id, this.extractActor(session));
+    await this.rolesService.deleteRole(id, this.extractActor(session));
   }
 
   @Get('organizations')
-  @Roles(['super_admin', 'admin'])
+  @RequirePlatformPermission('organization:read')
   @ApiOperation({ summary: 'Daftar organisasi multi-tenant' })
   async listOrganizations(
     @Query('page') page = '0',
     @Query('pageSize') pageSize = '10',
     @Query('search') search?: string,
   ) {
-    return this.consoleService.listOrganizations({
+    return this.organizationsService.listOrganizations({
       page: Number(page) || 0,
       pageSize: Math.min(100, Number(pageSize) || 10),
       search,
@@ -200,51 +214,51 @@ export class AuthConsoleController {
   }
 
   @Post('organizations')
-  @Roles(['super_admin', 'admin'])
+  @RequirePlatformPermission('organization:create')
   @ApiOperation({ summary: 'Buat organisasi baru' })
   async createOrganization(
     @Body() body: CreateConsoleOrgDto,
     @Session() session: AuthSessionContext | null,
   ) {
-    return this.consoleService.createOrganization(
+    return this.organizationsService.createOrganization(
       body,
       this.extractActor(session),
     );
   }
 
   @Patch('organizations/:id')
-  @Roles(['super_admin', 'admin'])
+  @RequirePlatformPermission('organization:update')
   @ApiOperation({ summary: 'Perbarui organisasi' })
   async updateOrganization(
     @Param('id') id: string,
     @Body() body: UpdateConsoleOrgDto,
   ) {
-    return this.consoleService.updateOrganization(id, body);
+    return this.organizationsService.updateOrganization(id, body);
   }
 
   @Delete('organizations/:id')
-  @Roles(['super_admin', 'admin'])
+  @RequirePlatformPermission('organization:delete')
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({ summary: 'Hapus organisasi' })
   async deleteOrganization(
     @Param('id') id: string,
     @Session() session: AuthSessionContext | null,
   ): Promise<void> {
-    await this.consoleService.deleteOrganization(
+    await this.organizationsService.deleteOrganization(
       id,
       this.extractActor(session),
     );
   }
 
   @Post('organizations/:id/invitations')
-  @Roles(['super_admin', 'admin'])
+  @RequirePlatformPermission('organization:update')
   @ApiOperation({ summary: 'Undang anggota baru ke organisasi' })
   async inviteMember(
     @Param('id') id: string,
     @Body() body: InviteOrgMemberDto,
     @Session() session: AuthSessionContext | null,
   ) {
-    return this.consoleService.inviteOrganizationMember(
+    return this.organizationsService.inviteOrganizationMember(
       id,
       body,
       this.extractActor(session),
@@ -252,38 +266,45 @@ export class AuthConsoleController {
   }
 
   @Delete('organizations/:id/invitations/:invitationId')
-  @Roles(['super_admin', 'admin'])
+  @RequirePlatformPermission('organization:update')
   @ApiOperation({ summary: 'Batalkan undangan organisasi' })
   async cancelInvitation(
     @Param('id') id: string,
     @Param('invitationId') invitationId: string,
   ) {
-    return this.consoleService.cancelOrganizationInvitation(id, invitationId);
+    return this.organizationsService.cancelOrganizationInvitation(
+      id,
+      invitationId,
+    );
   }
 
   @Patch('organizations/:id/members/:memberId')
-  @Roles(['super_admin', 'admin'])
+  @RequirePlatformPermission('organization:update')
   @ApiOperation({ summary: 'Ubah role anggota organisasi' })
   async updateMemberRole(
     @Param('id') id: string,
     @Param('memberId') memberId: string,
     @Body() body: UpdateOrgMemberRoleDto,
   ) {
-    return this.consoleService.updateOrganizationMemberRole(id, memberId, body);
+    return this.organizationsService.updateOrganizationMemberRole(
+      id,
+      memberId,
+      body,
+    );
   }
 
   @Delete('organizations/:id/members/:memberId')
-  @Roles(['super_admin', 'admin'])
+  @RequirePlatformPermission('organization:update')
   @ApiOperation({ summary: 'Hapus anggota organisasi' })
   async removeMember(
     @Param('id') id: string,
     @Param('memberId') memberId: string,
   ) {
-    return this.consoleService.removeOrganizationMember(id, memberId);
+    return this.organizationsService.removeOrganizationMember(id, memberId);
   }
 
   @Get('sessions')
-  @Roles(['super_admin', 'admin'])
+  @RequirePlatformPermission('session:read')
   @ApiOperation({ summary: 'Daftar sesi aktif & kedaluwarsa' })
   async listSessions(
     @Query('page') page = '0',
@@ -292,7 +313,7 @@ export class AuthConsoleController {
     @Query('status') status?: string,
     @Query('sinceDate') sinceDate?: string,
   ) {
-    return this.consoleService.listSessions({
+    return this.sessionsService.listSessions({
       page: Number(page) || 0,
       pageSize: Math.min(100, Number(pageSize) || 10),
       search,
@@ -302,33 +323,33 @@ export class AuthConsoleController {
   }
 
   @Delete('sessions/:id')
-  @Roles(['super_admin', 'admin'])
+  @RequirePlatformPermission('session:revoke')
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({ summary: 'Cabut satu sesi aktif' })
   async revokeSession(
     @Param('id') id: string,
     @Session() session: AuthSessionContext | null,
   ): Promise<void> {
-    await this.consoleService.revokeSession(id, this.extractActor(session));
+    await this.sessionsService.revokeSession(id, this.extractActor(session));
   }
 
   @Post('sessions/revoke-inactive')
-  @Roles(['super_admin', 'admin'])
+  @RequirePlatformPermission('session:revoke')
   @ApiOperation({ summary: 'Hapus semua sesi yang sudah kedaluwarsa' })
   async revokeInactiveSessions() {
-    const removed = await this.consoleService.revokeInactiveSessions();
+    const removed = await this.sessionsService.revokeInactiveSessions();
     return { removed };
   }
 
   @Get('api-keys')
-  @Roles(['super_admin', 'admin'])
+  @RequirePlatformPermission('apiKey:read')
   @ApiOperation({ summary: 'Daftar API Key terdaftar' })
   async listApiKeys(
     @Query('page') page = '0',
     @Query('pageSize') pageSize = '10',
     @Query('search') search?: string,
   ) {
-    return this.consoleService.listApiKeys({
+    return this.apiKeysService.listApiKeys({
       page: Number(page) || 0,
       pageSize: Math.min(100, Number(pageSize) || 10),
       search,
@@ -336,46 +357,46 @@ export class AuthConsoleController {
   }
 
   @Post('api-keys')
-  @Roles(['super_admin', 'admin'])
+  @RequirePlatformPermission('apiKey:create')
   @ApiOperation({ summary: 'Terbitkan API Key baru' })
   async createApiKey(
     @Body() body: CreateApiKeyDto,
     @Session() session: AuthSessionContext | null,
   ) {
-    return this.consoleService.createApiKey(body, this.extractActor(session));
+    return this.apiKeysService.createApiKey(body, this.extractActor(session));
   }
 
   @Patch('api-keys/:id')
-  @Roles(['super_admin', 'admin'])
+  @RequirePlatformPermission('apiKey:update')
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({ summary: 'Aktifkan/nonaktifkan API Key' })
   async toggleApiKey(
     @Param('id') id: string,
     @Body() body: ToggleApiKeyDto,
   ): Promise<void> {
-    await this.consoleService.toggleApiKey(id, body.enabled);
+    await this.apiKeysService.toggleApiKey(id, body.enabled);
   }
 
   @Delete('api-keys/:id')
-  @Roles(['super_admin', 'admin'])
+  @RequirePlatformPermission('apiKey:revoke')
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({ summary: 'Cabut API Key permanen' })
   async deleteApiKey(
     @Param('id') id: string,
     @Session() session: AuthSessionContext | null,
   ): Promise<void> {
-    await this.consoleService.deleteApiKey(id, this.extractActor(session));
+    await this.apiKeysService.deleteApiKey(id, this.extractActor(session));
   }
 
   @Get('oauth-clients')
-  @Roles(['super_admin', 'admin'])
+  @RequirePlatformPermission('oauthClient:read')
   @ApiOperation({ summary: 'Daftar OAuth 2.1 / OIDC / MCP Clients' })
   async listOAuthClients(
     @Query('page') page = '0',
     @Query('pageSize') pageSize = '10',
     @Query('search') search?: string,
   ) {
-    return this.consoleService.listOAuthClients({
+    return this.oauthSsoService.listOAuthClients({
       page: Number(page) || 0,
       pageSize: Math.min(100, Number(pageSize) || 10),
       search,
@@ -383,56 +404,56 @@ export class AuthConsoleController {
   }
 
   @Post('oauth-clients')
-  @Roles(['super_admin', 'admin'])
+  @RequirePlatformPermission('oauthClient:create')
   @ApiOperation({ summary: 'Daftarkan OAuth / MCP client baru' })
   async createOAuthClient(
     @Body() body: CreateOAuthClientDto,
     @Session() session: AuthSessionContext | null,
   ) {
-    return this.consoleService.createOAuthClient(
+    return this.oauthSsoService.createOAuthClient(
       body,
       this.extractActor(session),
     );
   }
 
   @Delete('oauth-clients/:id')
-  @Roles(['super_admin', 'admin'])
+  @RequirePlatformPermission('oauthClient:delete')
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({ summary: 'Hapus OAuth client' })
   async deleteOAuthClient(@Param('id') id: string): Promise<void> {
-    await this.consoleService.deleteOAuthClient(id);
+    await this.oauthSsoService.deleteOAuthClient(id);
   }
 
   @Get('sso-providers')
-  @Roles(['super_admin', 'admin'])
+  @RequirePlatformPermission('sso:read')
   @ApiOperation({ summary: 'Daftar Enterprise SSO Providers (SAML/OIDC)' })
   async listSsoProviders() {
-    return this.consoleService.listSsoProviders();
+    return this.oauthSsoService.listSsoProviders();
   }
 
   @Post('sso-providers')
-  @Roles(['super_admin', 'admin'])
+  @RequirePlatformPermission('sso:configure')
   @ApiOperation({ summary: 'Registrasi provider Enterprise SSO baru' })
   async createSsoProvider(
     @Body() body: CreateSsoProviderDto,
     @Session() session: AuthSessionContext | null,
   ) {
-    return this.consoleService.createSsoProvider(
+    return this.oauthSsoService.createSsoProvider(
       body,
       this.extractActor(session),
     );
   }
 
   @Delete('sso-providers/:id')
-  @Roles(['super_admin', 'admin'])
+  @RequirePlatformPermission('sso:delete')
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({ summary: 'Hapus provider SSO' })
   async deleteSsoProvider(@Param('id') id: string): Promise<void> {
-    await this.consoleService.deleteSsoProvider(id);
+    await this.oauthSsoService.deleteSsoProvider(id);
   }
 
   @Get('audit-logs')
-  @Roles(['super_admin', 'admin'])
+  @RequirePlatformPermission('auditLog:read')
   @ApiOperation({ summary: 'Stream audit logs dengan cursor pagination' })
   async listAuditLogs(
     @Query('cursor') cursor = '0',
@@ -443,7 +464,7 @@ export class AuthConsoleController {
     @Query('fromDate') fromDate?: string,
     @Query('toDate') toDate?: string,
   ) {
-    return this.consoleService.fetchAuditLogsPage({
+    return this.auditService.fetchAuditLogsPage({
       cursor: Number(cursor) || 0,
       limit: Math.min(100, Number(limit) || 25),
       search,

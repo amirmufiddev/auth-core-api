@@ -17,7 +17,7 @@ import {
 } from './config';
 import { DatabaseModule } from './database/database.module';
 import { AuthModule } from './modules/auth';
-import { AuthConsoleModule } from './modules/auth-console';
+import { PlatformConsoleModule } from './modules/platform-console';
 import { HealthModule } from './modules/health';
 import { LoggerModule } from './logger/logger.module';
 import { RbacModule } from './modules/rbac';
@@ -66,7 +66,7 @@ import { CryptoModule } from './common/crypto';
     MetricsModule,
     SharedEventsModule,
     AuthModule,
-    AuthConsoleModule,
+    PlatformConsoleModule,
     HealthModule,
     RbacModule,
     UploadModule,

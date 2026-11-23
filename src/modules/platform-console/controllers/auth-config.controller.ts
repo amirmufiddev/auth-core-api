@@ -1,9 +1,10 @@
 import { Body, Controller, Get, Put, VERSION_NEUTRAL } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
-import { AllowAnonymous, Roles, Session } from '@thallesp/nestjs-better-auth';
+import { AllowAnonymous, Session } from '@thallesp/nestjs-better-auth';
 import { AuthFeatureConfigService } from '@/modules/auth';
-import { UpdateAuthConfigDto } from '../dto/auth-console.dto';
-import { AuthConsoleService } from '../services/auth-console.service';
+import { RequirePlatformPermission } from '@/modules/rbac';
+import { UpdateAuthConfigDto } from '../dto/platform-console.dto';
+import { PlatformAuditService } from '../services/platform-audit.service';
 
 interface SessionPayload {
   user?: {
@@ -18,7 +19,7 @@ interface SessionPayload {
 export class AuthConfigController {
   constructor(
     private readonly featureConfigService: AuthFeatureConfigService,
-    private readonly consoleService: AuthConsoleService,
+    private readonly auditService: PlatformAuditService,
   ) {}
 
   @Get()
@@ -32,7 +33,7 @@ export class AuthConfigController {
 
   @Put()
   @ApiBearerAuth()
-  @Roles(['super_admin', 'admin'])
+  @RequirePlatformPermission('authConfig:configure')
   @ApiOperation({
     summary:
       'Simpan konfigurasi runtime fitur Better Auth & reload Better Auth instance',
@@ -47,7 +48,7 @@ export class AuthConfigController {
       actorEmail,
     );
 
-    await this.consoleService.recordAudit({
+    await this.auditService.recordAudit({
       event: 'config.features_updated',
       category: 'config',
       severity: 'warning',
@@ -64,9 +65,10 @@ export class AuthConfigController {
       },
     });
 
+    const publicConfig = this.featureConfigService.getPublicConfig();
     return {
-      features: this.featureConfigService.getPublicConfig().features,
-      capabilities: this.featureConfigService.getPublicConfig().capabilities,
+      features: publicConfig.features,
+      capabilities: publicConfig.capabilities,
       syncedAt: new Date().toISOString(),
     };
   }

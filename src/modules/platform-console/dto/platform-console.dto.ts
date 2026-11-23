@@ -118,6 +118,10 @@ export class UpdateConsoleRoleDto {
 }
 
 export class CreateConsoleOrgDto {
+  @IsOptional()
+  @IsString()
+  tenantId?: string;
+
   @IsString()
   @MinLength(1)
   name!: string;
