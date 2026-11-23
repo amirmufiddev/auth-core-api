@@ -1,6 +1,9 @@
+import 'reflect-metadata';
+import { ValidationPipe } from '@nestjs/common';
 import { describe, expect, it, mock } from 'bun:test';
 import { BusinessError } from '@/common/errors/business-error';
 import type { Tenant } from '@/database/schema';
+import { UpdateTenantDto } from '../dto/tenant.dto';
 import {
   RESERVED_TENANT_SLUGS,
   type ITenantRepository,
@@ -186,6 +189,40 @@ describe('TenantService', () => {
     expect(mocks.tenantRepo.update).not.toHaveBeenCalled();
   });
 
+  it('should allow slug through ValidationPipe whitelist on UpdateTenantDto so TenantService rejects with 400 TENANT_SLUG_IMMUTABLE', async () => {
+    const mocks = createMocks();
+    const service = new TenantService(
+      mocks.tenantRepo,
+      mocks.cacheService,
+      mocks.redisClient,
+      mocks.eventEmitter,
+    );
+
+    const pipe = new ValidationPipe({
+      whitelist: true,
+      forbidNonWhitelisted: true,
+      transform: true,
+    });
+
+    const transformed = (await pipe.transform(
+      { slug: 'new-slug' },
+      { type: 'body', metatype: UpdateTenantDto },
+    )) as UpdateTenantDto;
+
+    expect(transformed.slug).toBe('new-slug');
+
+    let caught: unknown;
+    try {
+      await service.updateTenant('ten_1', transformed);
+    } catch (err) {
+      caught = err;
+    }
+
+    expect(caught).toBeInstanceOf(BusinessError);
+    expect((caught as BusinessError).httpStatus).toBe(400);
+    expect((caught as BusinessError).code).toBe('TENANT_SLUG_IMMUTABLE');
+  });
+
   it('should update Redis slug cache, increment configVersion, and publish invalidation when tier changes', async () => {
     const mocks = createMocks();
     const service = new TenantService(
@@ -215,14 +252,23 @@ describe('TenantService', () => {
       } satisfies TenantSummaryCache,
       300_000,
     );
-    expect(mocks.redisClient.publish).toHaveBeenCalledTimes(1);
-    expect(mocks.eventEmitter.emit).toHaveBeenCalledWith(
-      'tenant.config.invalidated',
-      expect.objectContaining({
+    expect(mocks.redisClient.publish).toHaveBeenCalledWith(
+      'authcore:config:invalidated',
+      JSON.stringify({
+        scope: 'tenant',
         tenantId: 'ten_1',
         slug: 'acme',
         configVersion: 2,
       }),
+    );
+    expect(mocks.eventEmitter.emit).toHaveBeenCalledWith(
+      'tenant.config.invalidated',
+      {
+        scope: 'tenant',
+        tenantId: 'ten_1',
+        slug: 'acme',
+        configVersion: 2,
+      },
     );
   });
 

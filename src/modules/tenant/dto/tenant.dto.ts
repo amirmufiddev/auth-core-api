@@ -60,7 +60,8 @@ export class UpdateTenantDto {
   name?: string;
 
   @ApiPropertyOptional({
-    description: 'Slug tenant bersifat immutable; mengirim field ini ditolak.',
+    description:
+      'Slug bersifat immutable; mengirim field ini ditolak 400 TENANT_SLUG_IMMUTABLE',
   })
   @IsOptional()
   @IsString()

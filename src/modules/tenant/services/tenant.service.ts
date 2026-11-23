@@ -19,7 +19,7 @@ import {
 const TENANT_SLUG_REGEX = /^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$/;
 const TENANT_SLUG_CACHE_PREFIX = 'authcore:tenant:slug:';
 const TENANT_SLUG_CACHE_TTL_MS = 5 * 60 * 1000;
-const TENANT_INVALIDATE_CHANNEL = 'authcore:tenant:invalidate';
+const CONFIG_INVALIDATED_CHANNEL = 'authcore:config:invalidated';
 const DEFAULT_TIER_ID = 'tier_free';
 
 interface RedisPublishClient {
@@ -86,12 +86,10 @@ export class TenantService {
 
   private async publishInvalidation(tenant: TenantRow): Promise<void> {
     const payload = {
+      scope: 'tenant' as const,
       tenantId: tenant.id,
       slug: tenant.slug,
-      status: tenant.status,
-      tierId: tenant.tierId,
       configVersion: tenant.configVersion,
-      updatedAt: new Date().toISOString(),
     };
 
     this.eventEmitter?.emit('tenant.config.invalidated', payload);
@@ -99,7 +97,7 @@ export class TenantService {
     if (!this.redisClient?.publish) return;
     try {
       await this.redisClient.publish(
-        TENANT_INVALIDATE_CHANNEL,
+        CONFIG_INVALIDATED_CHANNEL,
         JSON.stringify(payload),
       );
     } catch (err) {
