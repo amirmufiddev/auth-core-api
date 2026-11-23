@@ -132,6 +132,9 @@ export class TenantService {
       search: query.search,
       status: query.status,
       tierId: query.tierId,
+      ...(query.ownerUserId !== undefined
+        ? { ownerUserId: query.ownerUserId }
+        : {}),
     });
 
     return {

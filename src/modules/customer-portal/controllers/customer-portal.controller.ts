@@ -1,0 +1,160 @@
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Param,
+  Patch,
+  Post,
+  Query,
+  UnauthorizedException,
+  UseGuards,
+  VERSION_NEUTRAL,
+} from '@nestjs/common';
+import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { Session } from '@thallesp/nestjs-better-auth';
+import { BillingRecordResponseDto } from '@/modules/billing';
+import { TenantResponseDto } from '@/modules/tenant';
+import {
+  CreatePortalOAuthClientDto,
+  CreatePortalTenantDto,
+  ListPortalBillingQueryDto,
+  ListPortalOAuthClientsQueryDto,
+  ListPortalTenantsQueryDto,
+  PortalBillingSummaryResponseDto,
+  PortalOAuthClientResponseDto,
+  UpdatePortalTenantDto,
+} from '../dto/customer-portal.dto';
+import { TenantOwnerGuard } from '../guards/tenant-owner.guard';
+import { CustomerPortalService } from '../services/customer-portal.service';
+
+interface PortalSessionContext {
+  user?: {
+    id?: string;
+    tenantId?: string | null;
+  } | null;
+}
+
+@ApiTags('Customer Portal')
+@ApiBearerAuth()
+@UseGuards(TenantOwnerGuard)
+@Controller({ path: 'api/portal/tenants', version: VERSION_NEUTRAL })
+export class CustomerPortalController {
+  constructor(private readonly portalService: CustomerPortalService) {}
+
+  private extractUserId(session: PortalSessionContext | null): string {
+    const userId = session?.user?.id;
+    if (!userId) {
+      throw new UnauthorizedException('Sesi login diperlukan.');
+    }
+    return userId;
+  }
+
+  @Get()
+  @ApiOperation({ summary: 'Daftar tenant milik pelanggan yang sedang login' })
+  async listOwnedTenants(
+    @Session() session: PortalSessionContext | null,
+    @Query() query: ListPortalTenantsQueryDto,
+  ) {
+    const userId = this.extractUserId(session);
+    const result = await this.portalService.listOwnedTenants(userId, query);
+
+    return {
+      items: result.items.map(TenantResponseDto.fromEntity),
+      total: result.total,
+      page: result.page,
+      pageSize: result.pageSize,
+    };
+  }
+
+  @Post()
+  @ApiOperation({ summary: 'Buat tenant baru untuk pelanggan aktif' })
+  async createTenant(
+    @Session() session: PortalSessionContext | null,
+    @Body() body: CreatePortalTenantDto,
+  ): Promise<TenantResponseDto> {
+    const userId = this.extractUserId(session);
+    const created = await this.portalService.createTenant(userId, body);
+    return TenantResponseDto.fromEntity(created);
+  }
+
+  @Get(':tenantId')
+  @ApiOperation({ summary: 'Detail tenant milik pelanggan' })
+  async getTenant(
+    @Param('tenantId') tenantId: string,
+  ): Promise<TenantResponseDto> {
+    const tenant = await this.portalService.getTenant(tenantId);
+    return TenantResponseDto.fromEntity(tenant);
+  }
+
+  @Patch(':tenantId')
+  @ApiOperation({
+    summary: 'Perbarui nama tenant milik pelanggan (slug bersifat immutable)',
+  })
+  async updateTenant(
+    @Param('tenantId') tenantId: string,
+    @Body() body: UpdatePortalTenantDto,
+  ): Promise<TenantResponseDto> {
+    const updated = await this.portalService.updateTenant(tenantId, body);
+    return TenantResponseDto.fromEntity(updated);
+  }
+
+  @Get(':tenantId/oauth-clients')
+  @ApiOperation({ summary: 'Daftar OAuth client terikat tenant' })
+  async listOAuthClients(
+    @Param('tenantId') tenantId: string,
+    @Query() query: ListPortalOAuthClientsQueryDto,
+  ): Promise<{
+    items: PortalOAuthClientResponseDto[];
+    total: number;
+    page: number;
+    pageSize: number;
+  }> {
+    return this.portalService.listTenantOAuthClients(tenantId, query);
+  }
+
+  @Post(':tenantId/oauth-clients')
+  @ApiOperation({
+    summary:
+      'Buat OAuth client terikat tenant (Free tier maksimal 1 client; plainClientSecret dikembalikan 1 kali)',
+  })
+  async createOAuthClient(
+    @Param('tenantId') tenantId: string,
+    @Session() session: PortalSessionContext | null,
+    @Body() body: CreatePortalOAuthClientDto,
+  ): Promise<PortalOAuthClientResponseDto> {
+    const userId = this.extractUserId(session);
+    return this.portalService.createTenantOAuthClient(tenantId, userId, body);
+  }
+
+  @Delete(':tenantId/oauth-clients/:clientId')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({ summary: 'Hapus OAuth client milik tenant' })
+  async deleteOAuthClient(
+    @Param('tenantId') tenantId: string,
+    @Param('clientId') clientId: string,
+  ): Promise<void> {
+    await this.portalService.deleteTenantOAuthClient(tenantId, clientId);
+  }
+
+  @Get(':tenantId/billing')
+  @ApiOperation({ summary: 'Ringkasan status dan riwayat billing tenant' })
+  async getTenantBilling(
+    @Param('tenantId') tenantId: string,
+    @Query() query: ListPortalBillingQueryDto,
+  ): Promise<PortalBillingSummaryResponseDto> {
+    const billing = await this.portalService.getTenantBilling(tenantId, query);
+
+    return {
+      tenantId: billing.tenantId,
+      tierId: billing.tierId,
+      billingStatus: billing.billingStatus,
+      items: billing.items.map(BillingRecordResponseDto.fromEntity),
+      total: billing.total,
+      page: billing.page,
+      pageSize: billing.pageSize,
+    };
+  }
+}

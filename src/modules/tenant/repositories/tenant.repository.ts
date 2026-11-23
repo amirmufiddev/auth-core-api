@@ -59,6 +59,10 @@ export class TenantRepository implements ITenantRepository {
       conditions.push(eq(schema.tenant.tierId, query.tierId.trim()));
     }
 
+    if (query.ownerUserId?.trim()) {
+      conditions.push(eq(schema.tenant.ownerUserId, query.ownerUserId.trim()));
+    }
+
     const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
     const { pageSize, offset } = clampZeroBasedPagination(
       query.page,

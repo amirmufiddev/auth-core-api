@@ -14,6 +14,7 @@ export interface ListTenantsQuery {
   search?: string;
   status?: TenantStatus;
   tierId?: string;
+  ownerUserId?: string;
 }
 
 export interface CreateTenantInput {
