@@ -9,7 +9,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NodePgDatabase } from 'drizzle-orm/node-postgres';
-import { desc, eq, inArray } from 'drizzle-orm';
+import { and, desc, eq, inArray } from 'drizzle-orm';
 import { DRIZZLE } from '@/database/database.constants';
 import * as schema from '@/database/schema';
 import { AuthFeatureConfigService } from '@/modules/auth';
@@ -319,7 +319,11 @@ export class AuthConsoleService {
 
     const userId = `usr_${crypto.randomUUID()}`;
     const accountId = `acc_${crypto.randomUUID()}`;
-    const rawPassword = input.password || 'Admin12345!';
+    const hasExplicitPassword =
+      typeof input.password === 'string' && input.password.length > 0;
+    const rawPassword = hasExplicitPassword
+      ? input.password!
+      : crypto.randomBytes(24).toString('base64url');
     const hashedPassword = await argon2.hash(rawPassword);
     const usernameValue = input.username || input.email.split('@')[0];
 
@@ -344,6 +348,22 @@ export class AuthConsoleService {
         password: hashedPassword,
       });
     });
+
+    if (!hasExplicitPassword) {
+      const appName =
+        this.configService.get<AppConfig>('app', { infer: true })?.appName ??
+        'Auth Core';
+      const clientUrl =
+        this.configService.get<string>('auth.clientUrl', { infer: true }) ??
+        'http://localhost:2000';
+      await this.emailService
+        .send({
+          to: input.email.toLowerCase(),
+          subject: `[${appName}] Akun Anda Telah Dibuat`,
+          html: `<p>Akun Anda telah dibuat oleh administrator. Silakan atur kata sandi Anda melalui <a href="${clientUrl}/forgot-password">halaman reset kata sandi</a>.</p>`,
+        })
+        .catch(() => undefined);
+    }
 
     await this.recordAudit({
       event: 'admin.user_created',
@@ -665,21 +685,18 @@ export class AuthConsoleService {
   }
 
   private parseOrgMetadata(raw: string | null): {
-    plan: 'Free' | 'Pro' | 'Enterprise';
     ssoEnabled: boolean;
   } {
-    if (!raw) return { plan: 'Pro', ssoEnabled: false };
+    if (!raw) return { ssoEnabled: false };
     try {
       const parsed = JSON.parse(raw) as {
-        plan?: 'Free' | 'Pro' | 'Enterprise';
         ssoEnabled?: boolean;
       };
       return {
-        plan: parsed.plan ?? 'Pro',
         ssoEnabled: Boolean(parsed.ssoEnabled),
       };
     } catch {
-      return { plan: 'Pro', ssoEnabled: false };
+      return { ssoEnabled: false };
     }
   }
 
@@ -713,7 +730,6 @@ export class AuthConsoleService {
       id: org.id,
       name: org.name,
       slug: org.slug ?? org.id,
-      plan: meta.plan,
       ssoEnabled: meta.ssoEnabled,
       memberCount: members.length,
       teamCount: teams.length,
@@ -802,7 +818,6 @@ export class AuthConsoleService {
         name: input.name,
         slug: input.slug,
         metadata: JSON.stringify({
-          plan: input.plan,
           ssoEnabled: input.ssoEnabled,
         }),
       })
@@ -828,7 +843,7 @@ export class AuthConsoleService {
       severity: 'info',
       actor,
       target: `org/${input.slug}`,
-      metadata: { plan: input.plan },
+      metadata: { ssoEnabled: input.ssoEnabled },
     });
 
     return this.hydrateOrganization(created);
@@ -848,7 +863,6 @@ export class AuthConsoleService {
 
     const meta = this.parseOrgMetadata(existing.metadata);
     const nextMeta = {
-      plan: patch.plan ?? meta.plan,
       ssoEnabled:
         patch.ssoEnabled !== undefined ? patch.ssoEnabled : meta.ssoEnabled,
     };
@@ -964,10 +978,19 @@ export class AuthConsoleService {
       throw new NotFoundException('Organisasi tidak ditemukan.');
     }
 
-    await this.db
+    const [updated] = await this.db
       .update(schema.member)
       .set({ role: input.role })
-      .where(eq(schema.member.id, memberId));
+      .where(
+        and(
+          eq(schema.member.organizationId, organizationId),
+          eq(schema.member.id, memberId),
+        ),
+      )
+      .returning({ id: schema.member.id });
+    if (!updated) {
+      throw new NotFoundException('Anggota organisasi tidak ditemukan.');
+    }
 
     return this.hydrateOrganization(org);
   }
@@ -984,7 +1007,18 @@ export class AuthConsoleService {
       throw new NotFoundException('Organisasi tidak ditemukan.');
     }
 
-    await this.db.delete(schema.member).where(eq(schema.member.id, memberId));
+    const [deleted] = await this.db
+      .delete(schema.member)
+      .where(
+        and(
+          eq(schema.member.organizationId, organizationId),
+          eq(schema.member.id, memberId),
+        ),
+      )
+      .returning({ id: schema.member.id });
+    if (!deleted) {
+      throw new NotFoundException('Anggota organisasi tidak ditemukan.');
+    }
 
     return this.hydrateOrganization(org);
   }
@@ -1004,9 +1038,18 @@ export class AuthConsoleService {
       throw new NotFoundException('Organisasi tidak ditemukan.');
     }
 
-    await this.db
+    const [deleted] = await this.db
       .delete(schema.invitation)
-      .where(eq(schema.invitation.id, invitationId));
+      .where(
+        and(
+          eq(schema.invitation.organizationId, organizationId),
+          eq(schema.invitation.id, invitationId),
+        ),
+      )
+      .returning({ id: schema.invitation.id });
+    if (!deleted) {
+      throw new NotFoundException('Undangan organisasi tidak ditemukan.');
+    }
 
     return this.hydrateOrganization(org);
   }
@@ -1367,17 +1410,23 @@ export class AuthConsoleService {
       .replace(/[^a-z0-9]+/g, '_')
       .replace(/^_|_$/g, '');
     const clientId = `${slug || 'client'}_${crypto.randomBytes(4).toString('hex')}`;
-    const clientSecret =
+    const plainClientSecret =
       input.type === 'oidc-public'
         ? null
         : `ocs_${crypto.randomBytes(24).toString('hex')}`;
+    const hashedClientSecret = plainClientSecret
+      ? crypto
+          .createHash('sha256')
+          .update(plainClientSecret)
+          .digest('base64url')
+      : null;
 
     const [created] = await this.db
       .insert(schema.oauthClient)
       .values({
         id: `oa_${crypto.randomUUID()}`,
         clientId,
-        clientSecret,
+        clientSecret: hashedClientSecret,
         name: input.name,
         redirectUris: input.redirectUris,
         scopes: input.scopes,
@@ -1401,6 +1450,7 @@ export class AuthConsoleService {
       pkceRequired: Boolean(created.requirePKCE),
       active: !Boolean(created.disabled),
       createdAt: (created.createdAt ?? new Date()).toISOString(),
+      ...(plainClientSecret ? { plainClientSecret } : {}),
     };
   }
 

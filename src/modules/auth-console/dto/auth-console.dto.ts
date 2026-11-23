@@ -126,9 +126,6 @@ export class CreateConsoleOrgDto {
   @MinLength(1)
   slug!: string;
 
-  @IsIn(['Free', 'Pro', 'Enterprise'])
-  plan!: 'Free' | 'Pro' | 'Enterprise';
-
   @IsBoolean()
   ssoEnabled!: boolean;
 }
@@ -141,10 +138,6 @@ export class UpdateConsoleOrgDto {
   @IsOptional()
   @IsString()
   slug?: string;
-
-  @IsOptional()
-  @IsIn(['Free', 'Pro', 'Enterprise'])
-  plan?: 'Free' | 'Pro' | 'Enterprise';
 
   @IsOptional()
   @IsBoolean()

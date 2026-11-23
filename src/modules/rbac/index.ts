@@ -5,6 +5,7 @@ export * from './services/permission-scope.service';
 export * from './services/permission-scope-cache.service';
 export * from './services/audit-trail.service';
 export * from './decorators';
+export * from './guards/platform-permission.guard';
 export * from './types';
 export * from './interfaces';
 export * from './dto';

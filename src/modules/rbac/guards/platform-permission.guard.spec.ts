@@ -1,0 +1,233 @@
+import { describe, expect, it, mock } from 'bun:test';
+import {
+  ExecutionContext,
+  ForbiddenException,
+  UnauthorizedException,
+} from '@nestjs/common';
+import { Reflector } from '@nestjs/core';
+import { RequirePlatformPermission } from '../decorators/require-platform-permission.decorator';
+import { PlatformPermissionGuard } from './platform-permission.guard';
+
+describe('PlatformPermissionGuard', () => {
+  const createExecutionContext = (
+    handler: (...args: any[]) => unknown,
+    session: unknown,
+  ): ExecutionContext =>
+    ({
+      getHandler: () => handler,
+      getClass: () => class TestController {},
+      switchToHttp: () => ({
+        getRequest: () => ({ session }),
+      }),
+    }) as unknown as ExecutionContext;
+
+  const makeSimpleDbMock = (
+    rows: Array<{ slug: string; permissions: Record<string, string[]> }>,
+  ) =>
+    ({
+      select: mock(() => ({
+        from: mock(() => ({
+          where: mock(() => ({
+            limit: mock(() => Promise.resolve(rows.slice(0, 1))),
+            then: (resolve: (value: typeof rows) => unknown) =>
+              Promise.resolve(rows).then(resolve),
+          })),
+        })),
+      })),
+    }) as any;
+
+  it('should throw on invalid permission format in @RequirePlatformPermission', () => {
+    expect(() => RequirePlatformPermission('auditLog')).toThrow();
+    expect(() => RequirePlatformPermission('auditLog:')).toThrow();
+    expect(() => RequirePlatformPermission(':read')).toThrow();
+    expect(() => RequirePlatformPermission('a:b:c')).toThrow();
+  });
+
+  it('should reject unauthenticated requests with 401 UnauthorizedException', async () => {
+    class DummyController {
+      @RequirePlatformPermission('auditLog:read')
+      listAuditLogs() {}
+    }
+
+    const guard = new PlatformPermissionGuard(
+      new Reflector(),
+      makeSimpleDbMock([]),
+    );
+
+    const ctxNoSession = createExecutionContext(
+      DummyController.prototype.listAuditLogs,
+      null,
+    );
+    await expect(guard.canActivate(ctxNoSession)).rejects.toThrow(
+      UnauthorizedException,
+    );
+
+    const ctxNoUser = createExecutionContext(
+      DummyController.prototype.listAuditLogs,
+      {},
+    );
+    await expect(guard.canActivate(ctxNoUser)).rejects.toThrow(
+      UnauthorizedException,
+    );
+  });
+
+  it('should reject tenant users (tenantId !== null) with 403 even if role is admin', async () => {
+    class DummyController {
+      @RequirePlatformPermission('auditLog:read')
+      listAuditLogs() {}
+    }
+
+    const db = makeSimpleDbMock([
+      {
+        slug: 'admin',
+        permissions: { auditLog: ['read', 'export'], user: ['delete'] },
+      },
+    ]);
+    const guard = new PlatformPermissionGuard(new Reflector(), db);
+
+    const ctx = createExecutionContext(
+      DummyController.prototype.listAuditLogs,
+      {
+        user: {
+          id: 'usr_tenant_admin',
+          email: 'tenant-admin@acme.test',
+          role: 'admin',
+          tenantId: 'ten_acme',
+        },
+      },
+    );
+
+    await expect(guard.canActivate(ctx)).rejects.toThrow(ForbiddenException);
+    expect(db.select).not.toHaveBeenCalled();
+  });
+
+  it('should allow auditor with auditLog:read on @RequirePlatformPermission("auditLog:read")', async () => {
+    class DummyController {
+      @RequirePlatformPermission('auditLog:read')
+      listAuditLogs() {}
+    }
+
+    const db = makeSimpleDbMock([
+      {
+        slug: 'auditor',
+        permissions: {
+          user: ['read'],
+          auditLog: ['read', 'export'],
+        },
+      },
+    ]);
+    const guard = new PlatformPermissionGuard(new Reflector(), db);
+
+    const ctx = createExecutionContext(
+      DummyController.prototype.listAuditLogs,
+      {
+        user: {
+          id: 'usr_auditor',
+          email: 'auditor@authcore.io',
+          role: 'auditor',
+          tenantId: null,
+        },
+      },
+    );
+
+    await expect(guard.canActivate(ctx)).resolves.toBe(true);
+  });
+
+  it('should reject auditor with 403 on @RequirePlatformPermission("user:delete")', async () => {
+    class DummyController {
+      @RequirePlatformPermission('user:delete')
+      deleteUser() {}
+    }
+
+    const db = makeSimpleDbMock([
+      {
+        slug: 'auditor',
+        permissions: {
+          user: ['read'],
+          auditLog: ['read', 'export'],
+        },
+      },
+    ]);
+    const guard = new PlatformPermissionGuard(new Reflector(), db);
+
+    const ctx = createExecutionContext(DummyController.prototype.deleteUser, {
+      user: {
+        id: 'usr_auditor',
+        email: 'auditor@authcore.io',
+        role: 'auditor',
+        tenantId: null,
+      },
+    });
+
+    await expect(guard.canActivate(ctx)).rejects.toThrow(ForbiddenException);
+  });
+
+  it('should reject when role is missing or not found in auth_core_role', async () => {
+    class DummyController {
+      @RequirePlatformPermission('auditLog:read')
+      listAuditLogs() {}
+    }
+
+    const guardNoRole = new PlatformPermissionGuard(
+      new Reflector(),
+      makeSimpleDbMock([]),
+    );
+    await expect(
+      guardNoRole.canActivate(
+        createExecutionContext(DummyController.prototype.listAuditLogs, {
+          user: { id: 'u1', role: null, tenantId: null },
+        }),
+      ),
+    ).rejects.toThrow(ForbiddenException);
+
+    await expect(
+      guardNoRole.canActivate(
+        createExecutionContext(DummyController.prototype.listAuditLogs, {
+          user: { id: 'u1', role: 'unknown_role', tenantId: null },
+        }),
+      ),
+    ).rejects.toThrow(ForbiddenException);
+  });
+
+  it('should allow comma-separated roles when any assigned role has the required permission', async () => {
+    class DummyController {
+      @RequirePlatformPermission('auditLog:export')
+      exportAuditLogs() {}
+    }
+
+    const db = makeSimpleDbMock([
+      { slug: 'user', permissions: {} },
+      { slug: 'auditor', permissions: { auditLog: ['read', 'export'] } },
+    ]);
+    const guard = new PlatformPermissionGuard(new Reflector(), db);
+
+    const ctx = createExecutionContext(
+      DummyController.prototype.exportAuditLogs,
+      {
+        user: {
+          id: 'u_multi',
+          role: 'user, auditor',
+          tenantId: null,
+        },
+      },
+    );
+
+    await expect(guard.canActivate(ctx)).resolves.toBe(true);
+  });
+
+  it('should pass through when @RequirePlatformPermission is not set', async () => {
+    class DummyController {
+      openMethod() {}
+    }
+
+    const guard = new PlatformPermissionGuard(
+      new Reflector(),
+      makeSimpleDbMock([]),
+    );
+    const ctx = createExecutionContext(
+      DummyController.prototype.openMethod,
+      null,
+    );
+    await expect(guard.canActivate(ctx)).resolves.toBe(true);
+  });
+});

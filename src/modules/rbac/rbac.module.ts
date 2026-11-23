@@ -13,6 +13,7 @@ import { OrganizationRoleRepository } from './repositories/organization-role.rep
 import { RbacPermissionService } from './services/rbac-permission.service';
 import { OrganizationRoleService } from './services/organization-role.service';
 import { PermissionScopeInterceptor } from './interceptors/permission-scope.interceptor';
+import { PlatformPermissionGuard } from './guards/platform-permission.guard';
 import {
   AUDIT_TRAIL_REPOSITORY_TOKEN,
   ORGANIZATION_ROLE_REPOSITORY_TOKEN,
@@ -46,12 +47,14 @@ const auditTrailRepositoryProvider = {
     PermissionScopeCacheService,
     AuditTrailService,
     PermissionScopeInterceptor,
+    PlatformPermissionGuard,
   ],
   exports: [
     PermissionScopeService,
     PermissionScopeCacheService,
     AuditTrailService,
     PermissionScopeInterceptor,
+    PlatformPermissionGuard,
     AuditTrailRepository,
     auditTrailRepositoryProvider,
     AUDIT_TRAIL_REPOSITORY_TOKEN,
