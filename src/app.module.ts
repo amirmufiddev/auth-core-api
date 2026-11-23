@@ -32,6 +32,7 @@ import { authConfig } from './config/auth.config';
 import { SharedEventsModule } from './shared/events/shared-events.module';
 import { MetricsModule } from './infrastructure/metrics/metrics.module';
 import { GlobalCacheModule } from './common/cache/cache.module';
+import { CryptoModule } from './common/crypto';
 
 /**
  * Auth Core `AppModule` — auth, member, rbac, upload, health, email.
@@ -61,6 +62,7 @@ import { GlobalCacheModule } from './common/cache/cache.module';
     }),
     LoggerModule,
     DatabaseModule,
+    CryptoModule,
     MetricsModule,
     SharedEventsModule,
     AuthModule,
