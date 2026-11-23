@@ -23,6 +23,8 @@ import { LoggerModule } from './logger/logger.module';
 import { RbacModule } from './modules/rbac';
 import { UploadModule } from './modules/upload';
 import { MemberModule } from './modules/member';
+import { TenantModule } from './modules/tenant';
+import { BillingModule } from './modules/billing';
 import { CorrelationIdMiddleware } from './common/middleware/correlation-id.middleware';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
@@ -71,6 +73,8 @@ import { CryptoModule } from './common/crypto';
     RbacModule,
     UploadModule,
     MemberModule,
+    TenantModule,
+    BillingModule,
   ],
   providers: [
     {

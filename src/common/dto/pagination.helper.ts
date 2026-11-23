@@ -81,3 +81,25 @@ export function buildPaginatedFromResult<T>(
 ): PaginatedResponseDto<T> {
   return PaginatedResponseDto.from(items, total, page, limit);
 }
+
+/**
+ * Clamp 0-based pagination parameters (`page >= 0`, `pageSize` in `[1, maxPageSize]`)
+ * so negative or oversized limits never reach PostgreSQL.
+ */
+export function clampZeroBasedPagination(
+  page: number,
+  pageSize: number,
+  defaultPageSize = 10,
+  maxPageSize = 100,
+): { page: number; pageSize: number; offset: number } {
+  const safePage = Number.isFinite(page) ? Math.max(0, Math.trunc(page)) : 0;
+  const rawSize = Number.isFinite(pageSize) ? Math.trunc(pageSize) : 0;
+  const safePageSize =
+    rawSize > 0 ? Math.min(maxPageSize, rawSize) : defaultPageSize;
+
+  return {
+    page: safePage,
+    pageSize: safePageSize,
+    offset: safePage * safePageSize,
+  };
+}
