@@ -188,7 +188,7 @@ describe('Multi-Tenant Drizzle Schema', () => {
     );
   });
 
-  it('should use set null on auditTrailLogs.tenantId FK and cascade on operational tables', () => {
+  it('should use set null on auditTrailLogs.tenantId FK and restrict on operational tables', () => {
     const auditConfig = getTableConfig(schema.auditTrailLogs);
     const auditTenantFk = auditConfig.foreignKeys.find((fk) =>
       fk.reference().columns.some((c) => c.name === 'tenant_id'),
@@ -201,6 +201,6 @@ describe('Multi-Tenant Drizzle Schema', () => {
       fk.reference().columns.some((c) => c.name === 'tenant_id'),
     );
     expect(sessionTenantFk).toBeDefined();
-    expect(sessionTenantFk?.onDelete).toBe('cascade');
+    expect(sessionTenantFk?.onDelete).toBe('restrict');
   });
 });

@@ -8,14 +8,20 @@ import {
 } from 'drizzle-orm/pg-core';
 import { user } from './better-auth-user';
 import { tenant } from './tenant';
+import {
+  tenantIdNotBlank,
+  tenantScopeColumn,
+  userTenantScopeFk,
+} from './tenant-scope';
 
 export const deviceCode = pgTable(
   'device_code',
   {
     id: text('id').primaryKey(),
     tenantId: text('tenant_id').references(() => tenant.id, {
-      onDelete: 'cascade',
+      onDelete: 'restrict',
     }),
+    tenantScope: tenantScopeColumn(),
     deviceCode: text('device_code').notNull(),
     userCode: text('user_code').notNull(),
     userId: text('user_id').references(() => user.id, { onDelete: 'cascade' }),
@@ -30,6 +36,14 @@ export const deviceCode = pgTable(
     index('idx_device_code_tenant_id').on(table.tenantId),
     index('idx_device_code_device_code').on(table.deviceCode),
     index('idx_device_code_user_code').on(table.userCode),
+    tenantIdNotBlank('ck_device_code_tenant_id_not_blank', table.tenantId),
+    userTenantScopeFk(
+      'fk_device_code_user_tenant_scope',
+      table.userId,
+      table.tenantScope,
+      user.id,
+      user.tenantScope,
+    ),
   ],
 );
 

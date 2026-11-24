@@ -7,14 +7,16 @@ import {
   index,
 } from 'drizzle-orm/pg-core';
 import { tenant } from './tenant';
+import { tenantIdNotBlank, tenantScopeColumn } from './tenant-scope';
 
 export const apikey = pgTable(
   'apikey',
   {
     id: text('id').primaryKey(),
     tenantId: text('tenant_id').references(() => tenant.id, {
-      onDelete: 'cascade',
+      onDelete: 'restrict',
     }),
+    tenantScope: tenantScopeColumn(),
     configId: text('config_id').default('default').notNull(),
     name: text('name'),
     start: text('start'),
@@ -44,6 +46,7 @@ export const apikey = pgTable(
     index('idx_apikey_tenant_id').on(table.tenantId),
     index('idx_apikey_key').on(table.key),
     index('idx_apikey_reference_id').on(table.referenceId),
+    tenantIdNotBlank('ck_apikey_tenant_id_not_blank', table.tenantId),
   ],
 );
 

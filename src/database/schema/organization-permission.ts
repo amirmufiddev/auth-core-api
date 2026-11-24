@@ -2,6 +2,7 @@ import { index, pgTable, text, uniqueIndex } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 import { baseColumns, baseIndexes } from './_base';
 import { tenant } from './tenant';
+import { tenantIdNotBlank, tenantScopeColumn } from './tenant-scope';
 
 /** Katalog permission organisasi, milik satu tenant. */
 export const organizationPermission = pgTable(
@@ -10,7 +11,8 @@ export const organizationPermission = pgTable(
     ...baseColumns,
     tenantId: text('tenant_id')
       .notNull()
-      .references(() => tenant.id, { onDelete: 'cascade' }),
+      .references(() => tenant.id, { onDelete: 'restrict' }),
+    tenantScope: tenantScopeColumn(),
     resource: text('resource').notNull(),
     action: text('action').notNull(),
     actionDisplayName: text('action_display_name').notNull(),
@@ -25,6 +27,10 @@ export const organizationPermission = pgTable(
     uniqueIndex('uq_organization_permission_tenant_resource_action_active')
       .on(table.tenantId, table.resource, table.action)
       .where(sql`${table.deletedAt} is null`),
+    tenantIdNotBlank(
+      'ck_organization_permission_tenant_id_not_blank',
+      table.tenantId,
+    ),
   ],
 );
 

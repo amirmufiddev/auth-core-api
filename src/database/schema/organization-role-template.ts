@@ -6,6 +6,7 @@ import {
   timestamp,
 } from 'drizzle-orm/pg-core';
 import { tenant } from './tenant';
+import { tenantIdNotBlank, tenantScopeColumn } from './tenant-scope';
 
 /** Template role yang disalin ke organization baru di dalam tenant yang sama. */
 export const organizationRoleTemplate = pgTable(
@@ -13,7 +14,8 @@ export const organizationRoleTemplate = pgTable(
   {
     tenantId: text('tenant_id')
       .notNull()
-      .references(() => tenant.id, { onDelete: 'cascade' }),
+      .references(() => tenant.id, { onDelete: 'restrict' }),
+    tenantScope: tenantScopeColumn(),
     roleName: text('role_name').notNull(),
     permission: text('permission').notNull(),
     permissionScopes: text('permission_scopes').notNull().default('{}'),
@@ -23,6 +25,10 @@ export const organizationRoleTemplate = pgTable(
   (table) => [
     primaryKey({ columns: [table.tenantId, table.roleName] }),
     index('idx_organization_role_template_tenant_id').on(table.tenantId),
+    tenantIdNotBlank(
+      'ck_organization_role_template_tenant_id_not_blank',
+      table.tenantId,
+    ),
   ],
 );
 

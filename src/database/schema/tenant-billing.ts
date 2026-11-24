@@ -9,6 +9,7 @@ import {
 import { tenant } from './tenant';
 import { authTiers } from './auth-tier';
 import { user } from './better-auth-user';
+import { tenantIdNotBlank, tenantScopeColumn } from './tenant-scope';
 
 export type TenantBillingRecordStatus =
   'active' | 'trialing' | 'past_due' | 'paid' | 'manual_invoice' | 'void';
@@ -19,7 +20,8 @@ export const tenantBillingRecords = pgTable(
     id: uuid('id').primaryKey().defaultRandom(),
     tenantId: text('tenant_id')
       .notNull()
-      .references(() => tenant.id, { onDelete: 'cascade' }),
+      .references(() => tenant.id, { onDelete: 'restrict' }),
+    tenantScope: tenantScopeColumn(),
     tierId: text('tier_id')
       .notNull()
       .references(() => authTiers.id),
@@ -37,6 +39,10 @@ export const tenantBillingRecords = pgTable(
   (table) => [
     index('idx_tenant_billing_records_tenant_id').on(table.tenantId),
     index('idx_tenant_billing_records_tier_id').on(table.tierId),
+    tenantIdNotBlank(
+      'ck_tenant_billing_records_tenant_id_not_blank',
+      table.tenantId,
+    ),
   ],
 );
 

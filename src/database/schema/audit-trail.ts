@@ -8,6 +8,7 @@ import {
 } from 'drizzle-orm/pg-core';
 import { user } from './better-auth-user';
 import { tenant } from './tenant';
+import { tenantIdNotBlank, tenantScopeColumn } from './tenant-scope';
 
 export const auditTrailLogs = pgTable(
   'audit_trail_logs',
@@ -16,6 +17,7 @@ export const auditTrailLogs = pgTable(
     tenantId: text('tenant_id').references(() => tenant.id, {
       onDelete: 'set null',
     }),
+    tenantScope: tenantScopeColumn(),
     moduleKey: text('module_key').notNull(),
     actorId: text('actor_id').references(() => user.id, {
       onDelete: 'set null',
@@ -41,6 +43,7 @@ export const auditTrailLogs = pgTable(
     index('idx_audit_trail_logs_actor_id').on(table.actorId),
     index('idx_audit_trail_logs_entity').on(table.entityType, table.entityId),
     index('idx_audit_trail_logs_created_at').on(table.createdAt),
+    tenantIdNotBlank('ck_audit_trail_logs_tenant_id_not_blank', table.tenantId),
   ],
 );
 

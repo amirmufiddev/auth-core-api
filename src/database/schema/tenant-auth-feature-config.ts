@@ -11,13 +11,15 @@ import {
 import type { EncryptedPayload } from '../../common/crypto/crypto.service';
 import { tenant } from './tenant';
 import { authFeatures } from './auth-feature';
+import { tenantIdNotBlank, tenantScopeColumn } from './tenant-scope';
 
 export const tenantAuthFeatureConfig = pgTable(
   'tenant_auth_feature_config',
   {
     tenantId: text('tenant_id')
       .notNull()
-      .references(() => tenant.id, { onDelete: 'cascade' }),
+      .references(() => tenant.id, { onDelete: 'restrict' }),
+    tenantScope: tenantScopeColumn(),
     featureId: uuid('feature_id')
       .notNull()
       .references(() => authFeatures.id, { onDelete: 'cascade' }),
@@ -39,6 +41,10 @@ export const tenantAuthFeatureConfig = pgTable(
   (table) => [
     primaryKey({ columns: [table.tenantId, table.featureId] }),
     index('idx_tenant_auth_feature_config_feature_id').on(table.featureId),
+    tenantIdNotBlank(
+      'ck_tenant_auth_feature_config_tenant_id_not_blank',
+      table.tenantId,
+    ),
   ],
 );
 

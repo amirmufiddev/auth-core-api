@@ -10,14 +10,20 @@ import {
 import { user } from './better-auth-user';
 import { session } from './better-auth-session';
 import { tenant } from './tenant';
+import {
+  tenantIdNotBlank,
+  tenantScopeColumn,
+  userTenantScopeFk,
+} from './tenant-scope';
 
 export const oauthClient = pgTable(
   'oauth_client',
   {
     id: text('id').primaryKey(),
     tenantId: text('tenant_id').references(() => tenant.id, {
-      onDelete: 'cascade',
+      onDelete: 'restrict',
     }),
+    tenantScope: tenantScopeColumn(),
     clientId: text('client_id').notNull().unique(),
     clientSecret: text('client_secret'),
     clientDiscoveryId: text('client_discovery_id'),
@@ -59,6 +65,7 @@ export const oauthClient = pgTable(
   (table) => [
     index('idx_oauth_client_tenant_id').on(table.tenantId),
     index('idx_oauth_client_user_id').on(table.userId),
+    tenantIdNotBlank('ck_oauth_client_tenant_id_not_blank', table.tenantId),
   ],
 );
 
@@ -97,8 +104,9 @@ export const oauthRefreshToken = pgTable(
   {
     id: text('id').primaryKey(),
     tenantId: text('tenant_id').references(() => tenant.id, {
-      onDelete: 'cascade',
+      onDelete: 'restrict',
     }),
+    tenantScope: tenantScopeColumn(),
     token: text('token').notNull().unique(),
     clientId: text('client_id')
       .notNull()
@@ -123,7 +131,17 @@ export const oauthRefreshToken = pgTable(
     confirmation: jsonb('confirmation'),
     scopes: text('scopes').array().notNull(),
   },
-  (table) => [index('idx_oauth_refresh_token_tenant_id').on(table.tenantId)],
+  (table) => [
+    index('idx_oauth_refresh_token_tenant_id').on(table.tenantId),
+    tenantIdNotBlank('ck_oauth_refresh_token_tenant_id_not_blank', table.tenantId),
+    userTenantScopeFk(
+      'fk_oauth_refresh_token_user_tenant_scope',
+      table.userId,
+      table.tenantScope,
+      user.id,
+      user.tenantScope,
+    ),
+  ],
 );
 
 export const oauthAccessToken = pgTable(
@@ -131,8 +149,9 @@ export const oauthAccessToken = pgTable(
   {
     id: text('id').primaryKey(),
     tenantId: text('tenant_id').references(() => tenant.id, {
-      onDelete: 'cascade',
+      onDelete: 'restrict',
     }),
+    tenantScope: tenantScopeColumn(),
     token: text('token').unique(),
     clientId: text('client_id')
       .notNull()
@@ -154,7 +173,17 @@ export const oauthAccessToken = pgTable(
     confirmation: jsonb('confirmation'),
     scopes: text('scopes').array().notNull(),
   },
-  (table) => [index('idx_oauth_access_token_tenant_id').on(table.tenantId)],
+  (table) => [
+    index('idx_oauth_access_token_tenant_id').on(table.tenantId),
+    tenantIdNotBlank('ck_oauth_access_token_tenant_id_not_blank', table.tenantId),
+    userTenantScopeFk(
+      'fk_oauth_access_token_user_tenant_scope',
+      table.userId,
+      table.tenantScope,
+      user.id,
+      user.tenantScope,
+    ),
+  ],
 );
 
 export const oauthConsent = pgTable(
@@ -162,8 +191,9 @@ export const oauthConsent = pgTable(
   {
     id: text('id').primaryKey(),
     tenantId: text('tenant_id').references(() => tenant.id, {
-      onDelete: 'cascade',
+      onDelete: 'restrict',
     }),
+    tenantScope: tenantScopeColumn(),
     clientId: text('client_id')
       .notNull()
       .references(() => oauthClient.clientId, { onDelete: 'cascade' }),
@@ -175,7 +205,17 @@ export const oauthConsent = pgTable(
     createdAt: timestamp('created_at').defaultNow(),
     updatedAt: timestamp('updated_at').defaultNow(),
   },
-  (table) => [index('idx_oauth_consent_tenant_id').on(table.tenantId)],
+  (table) => [
+    index('idx_oauth_consent_tenant_id').on(table.tenantId),
+    tenantIdNotBlank('ck_oauth_consent_tenant_id_not_blank', table.tenantId),
+    userTenantScopeFk(
+      'fk_oauth_consent_user_tenant_scope',
+      table.userId,
+      table.tenantScope,
+      user.id,
+      user.tenantScope,
+    ),
+  ],
 );
 
 export const oauthClientAssertion = pgTable('oauth_client_assertion', {
