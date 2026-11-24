@@ -1,7 +1,7 @@
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { BETTER_AUTH_REDIS_CLIENT } from '@/common/auth/better-auth-cache.module';
 import { CryptoService, type EncryptedPayload } from '@/common/crypto';
-import type { AuthFeature, TenantAuthFeatureConfigRow } from '@/database/schema';
+import type { AuthFeature } from '@/database/schema';
 import {
   BETTER_AUTH_FEATURE_CATALOG,
   BETTER_AUTH_FEATURE_CATALOG_MAP,
@@ -15,21 +15,21 @@ import {
   FEATURE_TIER_REPOSITORY_TOKEN,
   type IFeatureTierRepository,
 } from '../interfaces/feature-tier-repository.interface';
+import {
+  CATALOG_VERSION_KEY,
+  type FeatureResolutionRedisClient,
+  TENANT_FEATURE_CONFIG_CACHE_PREFIX,
+  TENANT_FEATURE_CONFIG_CACHE_TTL_SECONDS,
+  loadTenantRowsWithCache,
+  readCatalogVersion,
+} from './feature-resolution-cache.helper';
 
-export const TENANT_FEATURE_CONFIG_CACHE_PREFIX = 'authcore:tenant:config:';
-export const TENANT_FEATURE_CONFIG_CACHE_TTL_SECONDS = 300;
-export const CATALOG_VERSION_KEY = 'authcore:catalog:version';
-
-export interface FeatureResolutionRedisClient {
-  get?: (key: string) => Promise<string | null>;
-  set?: (
-    key: string,
-    value: string,
-    expiryMode: 'EX',
-    ttlSeconds: number,
-  ) => Promise<unknown>;
-  del?: (...keys: string[]) => Promise<unknown>;
-}
+export {
+  CATALOG_VERSION_KEY,
+  TENANT_FEATURE_CONFIG_CACHE_PREFIX,
+  TENANT_FEATURE_CONFIG_CACHE_TTL_SECONDS,
+  type FeatureResolutionRedisClient,
+};
 
 export interface ResolvedTenantFeatureRuntime {
   configMap: FeatureConfigMap;
@@ -48,18 +48,6 @@ export interface PublicAuthConfigResponse {
   >;
 }
 
-interface CachedTenantConfigPayload {
-  tenantId: string;
-  tierId: string;
-  configVersion: number;
-  rows: Array<{
-    featureId: string;
-    enabled: boolean;
-    settings: Record<string, string | number | boolean>;
-    secrets: Record<string, EncryptedPayload>;
-  }>;
-}
-
 @Injectable()
 export class FeatureResolutionService {
   private readonly logger = new Logger(FeatureResolutionService.name);
@@ -73,17 +61,6 @@ export class FeatureResolutionService {
     @Inject(BETTER_AUTH_REDIS_CLIENT)
     private readonly redisClient?: FeatureResolutionRedisClient,
   ) {}
-
-  private async readCatalogVersion(): Promise<number> {
-    if (!this.redisClient?.get) return 0;
-    try {
-      const raw = await this.redisClient.get(CATALOG_VERSION_KEY);
-      const parsed = raw !== null ? Number(raw) : 0;
-      return Number.isFinite(parsed) ? parsed : 0;
-    } catch {
-      return 0;
-    }
-  }
 
   private decryptSecretMap(
     secrets: Record<string, EncryptedPayload> | undefined,
@@ -111,10 +88,9 @@ export class FeatureResolutionService {
     const [features, platformRows, catalogVersion] = await Promise.all([
       this.repo.listFeatures(),
       this.repo.listPlatformFeatureConfigs(),
-      this.readCatalogVersion(),
+      readCatalogVersion(this.redisClient),
     ]);
 
-    const featureById = new Map(features.map((f) => [f.id, f]));
     const featureByCode = new Map(features.map((f) => [f.code, f]));
     const platformByFeatureId = new Map(
       platformRows.map((r) => [r.featureId, r]),
@@ -168,76 +144,12 @@ export class FeatureResolutionService {
       }
     }
 
-    void featureById;
     return {
       configMap,
       decryptedSecrets,
       configVersion: 1,
       catalogVersion,
     };
-  }
-
-  private async loadTenantRowsWithCache(
-    tenantId: string,
-    tierId: string,
-  ): Promise<{
-    rows: Array<
-      Pick<
-        TenantAuthFeatureConfigRow,
-        'featureId' | 'enabled' | 'settings' | 'secrets'
-      >
-    >;
-    configVersion: number;
-  }> {
-    const cacheKey = `${TENANT_FEATURE_CONFIG_CACHE_PREFIX}${tenantId}`;
-    if (this.redisClient?.get) {
-      try {
-        const raw = await this.redisClient.get(cacheKey);
-        if (raw) {
-          const parsed = JSON.parse(raw) as CachedTenantConfigPayload;
-          if (parsed.tierId === tierId && Array.isArray(parsed.rows)) {
-            return {
-              rows: parsed.rows,
-              configVersion: parsed.configVersion ?? 1,
-            };
-          }
-        }
-      } catch {
-        // Fallback to DB on cache read error
-      }
-    }
-
-    const [rows, tenantRow] = await Promise.all([
-      this.repo.listTenantFeatureConfigs(tenantId),
-      this.tenantService.getTenantById(tenantId).catch(() => null),
-    ]);
-    const configVersion = tenantRow?.configVersion ?? 1;
-
-    if (this.redisClient?.set) {
-      try {
-        const payload: CachedTenantConfigPayload = {
-          tenantId,
-          tierId,
-          configVersion,
-          rows: rows.map((r) => ({
-            featureId: r.featureId,
-            enabled: r.enabled,
-            settings: r.settings ?? {},
-            secrets: r.secrets ?? {},
-          })),
-        };
-        await this.redisClient.set(
-          cacheKey,
-          JSON.stringify(payload),
-          'EX',
-          TENANT_FEATURE_CONFIG_CACHE_TTL_SECONDS,
-        );
-      } catch {
-        // Best-effort cache write
-      }
-    }
-
-    return { rows, configVersion };
   }
 
   async resolveForTenant(
@@ -248,8 +160,14 @@ export class FeatureResolutionService {
       await Promise.all([
         this.repo.listFeatures(),
         this.repo.getTierFeatureIds(tierId),
-        this.loadTenantRowsWithCache(tenantId, tierId),
-        this.readCatalogVersion(),
+        loadTenantRowsWithCache({
+          tenantId,
+          tierId,
+          repo: this.repo,
+          tenantService: this.tenantService,
+          redisClient: this.redisClient,
+        }),
+        readCatalogVersion(this.redisClient),
       ]);
 
     const featureByCode = new Map<string, AuthFeature>(
