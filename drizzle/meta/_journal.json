@@ -36,6 +36,20 @@
       "when": 1795504200000,
       "tag": "0004_sync_default_organization_roles",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1795541961413,
+      "tag": "0005_tenant_scope_columns_and_restrict",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1795541974823,
+      "tag": "0006_tenant_scope_composite_fks",
+      "breakpoints": true
     }
   ]
 }
