@@ -46,7 +46,7 @@ import { stripe } from '@better-auth/stripe';
 import { i18n } from '@better-auth/i18n';
 import { MemberAcceptedBridge } from '@/modules/member';
 import { drizzle } from 'drizzle-orm/node-postgres';
-import { and, eq } from 'drizzle-orm';
+import { and, asc, eq } from 'drizzle-orm';
 import { canCreateOrganization } from '@/modules/auth/organization-access';
 import translationsId from '@/i18n/id/auth-errors.json';
 import translationsEn from '@/i18n/en/auth-errors.json';
@@ -246,6 +246,7 @@ async function resolveTenantClaimsForUser(
             eq(schema.member.tenantId, tenantId),
           ),
         )
+        .orderBy(asc(schema.member.createdAt), asc(schema.member.id))
         .limit(1);
       targetOrgId = firstMembership?.organizationId ?? null;
     }
@@ -1296,17 +1297,86 @@ const buildPluginsConfig = (
             false,
           ),
         ),
-        customAccessTokenClaims: async ({ user }) => {
-          if (!user?.id) return {};
-          return resolveTenantClaimsForUser(authDb, deps, user.id);
+        customAccessTokenClaims: async (info) => {
+          if (!info.user?.id) return {};
+          const activeOrgId =
+            (info as { session?: { activeOrganizationId?: string | null } })
+              .session?.activeOrganizationId ??
+            (info as { activeOrganizationId?: string | null })
+              .activeOrganizationId ??
+            (
+              info.metadata as
+                | { activeOrganizationId?: string | null }
+                | undefined
+            )?.activeOrganizationId ??
+            (
+              info.user as
+                | { activeOrganizationId?: string | null }
+                | undefined
+            )?.activeOrganizationId ??
+            null;
+          return resolveTenantClaimsForUser(
+            authDb,
+            deps,
+            info.user.id,
+            activeOrgId,
+          );
         },
-        customIdTokenClaims: async ({ user }) => {
-          if (!user?.id) return {};
-          return resolveTenantClaimsForUser(authDb, deps, user.id);
+        customIdTokenClaims: async (info) => {
+          if (!info.user?.id) return {};
+          const activeOrgId =
+            (info as { session?: { activeOrganizationId?: string | null } })
+              .session?.activeOrganizationId ??
+            (info as { activeOrganizationId?: string | null })
+              .activeOrganizationId ??
+            (
+              info.metadata as
+                | { activeOrganizationId?: string | null }
+                | undefined
+            )?.activeOrganizationId ??
+            (
+              info.user as
+                | { activeOrganizationId?: string | null }
+                | undefined
+            )?.activeOrganizationId ??
+            null;
+          return resolveTenantClaimsForUser(
+            authDb,
+            deps,
+            info.user.id,
+            activeOrgId,
+          );
         },
-        customUserInfoClaims: async ({ user }) => {
-          if (!user?.id) return {};
-          return resolveTenantClaimsForUser(authDb, deps, user.id);
+        customUserInfoClaims: async (info) => {
+          if (!info.user?.id) return {};
+          const activeOrgId =
+            (
+              info.jwt as
+                | {
+                    active_organization_id?: string | null;
+                    activeOrganizationId?: string | null;
+                  }
+                | undefined
+            )?.active_organization_id ??
+            (
+              info.jwt as
+                | { activeOrganizationId?: string | null }
+                | undefined
+            )?.activeOrganizationId ??
+            (info as { session?: { activeOrganizationId?: string | null } })
+              .session?.activeOrganizationId ??
+            (
+              info.user as
+                | { activeOrganizationId?: string | null }
+                | undefined
+            )?.activeOrganizationId ??
+            null;
+          return resolveTenantClaimsForUser(
+            authDb,
+            deps,
+            info.user.id,
+            activeOrgId,
+          );
         },
       }),
     );

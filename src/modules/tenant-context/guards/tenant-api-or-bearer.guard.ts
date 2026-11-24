@@ -89,10 +89,14 @@ export class TenantApiOrBearerGuard implements CanActivate {
       ).verifyApiKey({ body: { key: apiKey } });
 
       if (verifyResult?.valid && verifyResult.key) {
-        if (
-          verifyResult.key.tenantId !== undefined &&
-          verifyResult.key.tenantId !== tenantCtx.tenantId
-        ) {
+        let keyTenantId = verifyResult.key.tenantId;
+        if (keyTenantId == null) {
+          const record =
+            await this.tenantContextService.findApiKeyRecord(apiKey);
+          keyTenantId = record?.tenantId ?? null;
+        }
+
+        if (keyTenantId !== tenantCtx.tenantId) {
           throw new ForbiddenException({
             code: 'CROSS_TENANT_API_KEY',
             message:

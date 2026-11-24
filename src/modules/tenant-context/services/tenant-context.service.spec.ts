@@ -8,6 +8,7 @@ import {
   resolveClampedJwtExpirationTime,
 } from '@/modules/auth/auth';
 import { TenantContextService } from './tenant-context.service';
+import { TenantContextController } from '../controllers/tenant-context.controller';
 import { TenantApiOrBearerGuard } from '../guards/tenant-api-or-bearer.guard';
 import type { ITenantContextRepository } from '../interfaces/tenant-context-repository.interface';
 
@@ -370,5 +371,161 @@ describe('TenantContextService & POS Integration', () => {
         () => guard.canActivate(makeExecutionContext({})),
       ),
     ).rejects.toThrow(UnauthorizedException);
+  });
+
+  it('Bearer user ditolak (403) saat memanggil getOrganization / listOrganizationMembers untuk org yang bukan anggotanya', async () => {
+    const { repo, state } = createInMemoryRepo();
+    state.organizations.push({
+      id: 'org_other_pos',
+      tenantId: 'ten_pos',
+      name: 'Cabang Lain',
+      slug: 'cabang-lain',
+      logo: null,
+      createdAt: new Date(),
+    });
+    const service = new TenantContextService(repo);
+    const controller = new TenantContextController(service);
+
+    const bearerReq = {
+      tenantAuthContext: {
+        authType: 'bearer' as const,
+        tenantId: 'ten_pos',
+        userId: 'usr_asep',
+        activeOrganizationId: 'org_warung',
+      },
+    } as never;
+
+    await expect(
+      controller.getOrganization(bearerReq, 'org_other_pos'),
+    ).rejects.toThrow(ForbiddenException);
+
+    await expect(
+      controller.listOrganizationMembers(bearerReq, 'org_other_pos', {}),
+    ).rejects.toThrow(ForbiddenException);
+
+    // Member sendiri tetap diizinkan
+    const ownOrg = await controller.getOrganization(bearerReq, 'org_warung');
+    expect(ownOrg.id).toBe('org_warung');
+
+    // api_key bersifat tenant-scoped M2M dan dapat membaca org mana pun di tenant-nya
+    const apiKeyReq = {
+      tenantAuthContext: {
+        authType: 'api_key' as const,
+        tenantId: 'ten_pos',
+        userId: 'usr_asep',
+        activeOrganizationId: null,
+        apiKeyId: 'key_pos_1',
+      },
+    } as never;
+    const otherOrgViaApiKey = await controller.getOrganization(
+      apiKeyReq,
+      'org_other_pos',
+    );
+    expect(otherOrgViaApiKey.id).toBe('org_other_pos');
+  });
+
+  it('TenantApiOrBearerGuard memverifikasi tenantId via findApiKeyRecord saat verifyResult.key.tenantId undefined', async () => {
+    const { repo } = createInMemoryRepo();
+    const service = new TenantContextService(repo);
+    const crypto = await import('node:crypto');
+
+    const posRawKey = 'ak_live_pos_no_tenant_field';
+    const posHash = crypto
+      .createHash('sha256')
+      .update(posRawKey)
+      .digest('base64url');
+
+    const bimaRawKey = 'ak_live_bima_no_tenant_field';
+    const bimaHash = crypto
+      .createHash('sha256')
+      .update(bimaRawKey)
+      .digest('base64url');
+
+    repo.findApiKeyByHashedKey = async (hashed) => {
+      if (hashed === posHash) {
+        return {
+          id: 'key_pos_undef',
+          tenantId: 'ten_pos',
+          referenceId: 'usr_asep',
+          key: posHash,
+          enabled: true,
+          expiresAt: null,
+        };
+      }
+      if (hashed === bimaHash) {
+        return {
+          id: 'key_bima_undef',
+          tenantId: 'ten_bima',
+          referenceId: 'usr_bima',
+          key: bimaHash,
+          enabled: true,
+          expiresAt: null,
+        };
+      }
+      return null;
+    };
+
+    const mockAuthRegistry = {
+      getForContext: async () => ({
+        api: {
+          verifyApiKey: async ({ body }: { body: { key: string } }) => ({
+            valid: true,
+            error: null,
+            key: {
+              id:
+                body.key === posRawKey ? 'key_pos_undef' : 'key_bima_undef',
+              referenceId: body.key === posRawKey ? 'usr_asep' : 'usr_bima',
+              tenantId: undefined,
+            },
+          }),
+          getSession: async () => null,
+        },
+      }),
+    };
+
+    const guard = new TenantApiOrBearerGuard(
+      mockAuthRegistry as never,
+      service,
+    );
+
+    const makeExecutionContext = (headers: Record<string, string>) => {
+      const req: Record<string, unknown> = { headers };
+      return {
+        switchToHttp: () => ({
+          getRequest: () => req,
+        }),
+      } as never;
+    };
+
+    // Cross-tenant key with undefined tenantId in verifyResult -> 403
+    await expect(
+      TenantContextStorage.run(
+        {
+          tenantId: 'ten_pos',
+          slug: 'pos',
+          tierId: null,
+          configVersion: 1,
+          source: 'subdomain',
+        },
+        () =>
+          guard.canActivate(
+            makeExecutionContext({ 'x-api-key': bimaRawKey }),
+          ),
+      ),
+    ).rejects.toThrow(ForbiddenException);
+
+    // Same-tenant key with undefined tenantId in verifyResult -> allowed
+    const allowed = await TenantContextStorage.run(
+      {
+        tenantId: 'ten_pos',
+        slug: 'pos',
+        tierId: null,
+        configVersion: 1,
+        source: 'subdomain',
+      },
+      () =>
+        guard.canActivate(makeExecutionContext({ 'x-api-key': posRawKey })),
+    );
+    expect(allowed).toBe(true);
   });
 });

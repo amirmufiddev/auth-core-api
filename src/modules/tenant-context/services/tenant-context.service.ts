@@ -191,6 +191,7 @@ export class TenantContextService {
   async getOrganization(params: {
     tenantId: string;
     organizationId: string;
+    userId?: string;
   }) {
     const org = await this.repo.findOrganizationById(params.organizationId);
     if (!org) {
@@ -203,17 +204,31 @@ export class TenantContextService {
           'Organisasi tidak termasuk dalam tenant yang aktif pada request ini.',
       });
     }
+    if (params.userId) {
+      const member = await this.repo.findMemberInOrganization(
+        params.organizationId,
+        params.userId,
+      );
+      if (!member) {
+        throw new ForbiddenException({
+          code: 'NOT_ORGANIZATION_MEMBER',
+          message: 'Anda bukan anggota organisasi ini.',
+        });
+      }
+    }
     return org;
   }
 
   async listOrganizationMembers(params: {
     tenantId: string;
     organizationId: string;
+    userId?: string;
     query: ListOrganizationMembersQueryDto;
   }) {
     await this.getOrganization({
       tenantId: params.tenantId,
       organizationId: params.organizationId,
+      userId: params.userId,
     });
 
     const page = Math.max(1, Number(params.query.page ?? 1) || 1);

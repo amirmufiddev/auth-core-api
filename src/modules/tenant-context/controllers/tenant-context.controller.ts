@@ -65,6 +65,7 @@ export class TenantContextController {
     return this.tenantContextService.getOrganization({
       tenantId: authCtx.tenantId,
       organizationId,
+      userId: authCtx.authType === 'bearer' ? authCtx.userId : undefined,
     });
   }
 
@@ -78,6 +79,7 @@ export class TenantContextController {
     return this.tenantContextService.listOrganizationMembers({
       tenantId: authCtx.tenantId,
       organizationId,
+      userId: authCtx.authType === 'bearer' ? authCtx.userId : undefined,
       query,
     });
   }
