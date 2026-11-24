@@ -370,7 +370,7 @@ async hourlyInventorySync() {
   const orgs = await this.organizationRepo.findAll();
   for (const org of orgs) {
     // WAJIB — kalau tidak dibungkus, query child akan kena RLS deny
-    await RlsContext.run(org.id, () => this.memberService.recalculate());
+    await RlsContext.run({ tenantId: org.tenantId, organizationId: org.id }, () => this.memberService.recalculate());
   }
 }
 ```
@@ -399,7 +399,7 @@ async find() {
 
 > **Detail:** Lihat `backend/src/shared/README.md` bagian 2 dan `backend/docs/database.md`.
 >
-> **Wajib untuk background job / event handler:** jalur eksekusi yang **TIDAK** melalui HTTP interceptor (cron, `@OnEvent` listener, queue worker) **wajib** membungkus query dengan `RlsContext.run(organizationId, () => ...)` — lihat `src/shared/README.md` bagian 2. Mendeteksi via audit: `grep -rn "@Cron\|@OnEvent" src/modules | grep -v "RlsContext"`.
+> **Wajib untuk background job / event handler:** jalur eksekusi yang **TIDAK** melalui HTTP interceptor (cron, `@OnEvent` listener, queue worker) **wajib** membungkus query dengan `RlsContext.run({ tenantId, organizationId }, () => ...)` — lihat `src/shared/README.md` bagian 2. Mendeteksi via audit: `grep -rn "@Cron\|@OnEvent" src/modules | grep -v "RlsContext"`.
 
 ---
 

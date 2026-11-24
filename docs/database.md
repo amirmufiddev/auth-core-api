@@ -76,7 +76,7 @@ const orders = await orderRepository.findByOrganization(organizationId);
 Aturan penggunaan:
 
 - Jangan mengambil `organizationId` dari body/query sebagai sumber otoritas ketika request sudah memiliki session context.
-- Jangan mengasumsikan context ada di luar request; background job dan test harus memakai `RlsContext.run(organizationId, callback)` secara eksplisit.
+- Jangan mengasumsikan context ada di luar request; background job dan test harus memakai `RlsContext.run({ tenantId, organizationId }, callback)` secara eksplisit.
 - `getCurrentOrganizationId()` mengembalikan `string | null`; repository harus menangani context yang tidak tersedia secara typed, bukan diam-diam mengambil seluruh tenant.
 - Context aplikasi dan PostgreSQL RLS policy adalah dua lapisan berbeda. Saat policy database diterapkan, nilai context harus di-bind ke mekanisme session/transaction database secara eksplisit; P1 saat ini menyediakan context helper/interceptor, bukan implementasi policy SQL otomatis.
 - Kolom tenant (`organization_id`, atau nama domain yang disepakati) harus di-index bersama predicate yang paling sering digunakan.
@@ -84,9 +84,12 @@ Aturan penggunaan:
 Contoh context manual untuk test atau job terisolasi:
 
 ```typescript
-await RlsContext.run('org-123', async () => {
-  await orderService.rebuildDailySummary();
-});
+await RlsContext.run(
+  { tenantId: 'ten_123', organizationId: 'org_123' },
+  async () => {
+    await orderService.rebuildDailySummary();
+  },
+);
 ```
 
 Lihat [`src/shared/README.md`](../src/shared/README.md) untuk API `run()` dan perilaku nested context.

@@ -49,13 +49,14 @@ Plugin Better Auth `organization()` menyediakan konteks organisasi aktif melalui
 Pada request HTTP, `RlsInterceptor` membaca `session.activeOrganizationId` lalu menjalankan handler dalam `RlsContext` berbasis `AsyncLocalStorage`. Service dan repository tetap wajib menerapkan filter tenant eksplisit; context tidak menggantikan predicate query.
 
 ```text
-Better Auth session.activeOrganizationId
+Better Auth session
         ↓
 RlsInterceptor
         ↓
-RlsContext (AsyncLocalStorage)
+RlsContext { tenantId, organizationId }
         ↓
-service/repository menggunakan organization_id
+cache tenant memakai tenantId
+cache organization memakai organizationId
 ```
 
 ### Better Auth Organization Plugin

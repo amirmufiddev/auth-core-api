@@ -237,7 +237,7 @@ describe('InventoryService (with RlsContext)', () => {
     // await new InventoryService(fakeRepo as any).list();
 
     // ✅ Good — bungkus dengan run() meniru RlsInterceptor
-    await RlsContext.run('organization-42', async () => {
+    await RlsContext.run({ tenantId: null, organizationId: 'organization-42' }, async () => {
       await new InventoryService(fakeRepo as any).list();
     });
     expect(captured).toBe('organization-42');

@@ -111,8 +111,9 @@ async syncorganizationInventory() {
 async syncorganizationInventory() {
   const allorganizations = await this.organizationRepo.findAll();
   for (const organization of allorganizations) {
-    await RlsContext.run(organization.id, () =>
-      this.inventoryService.recalculate(),
+    await RlsContext.run(
+      { tenantId: organization.tenantId, organizationId: organization.id },
+      () => this.inventoryService.recalculate(),
     );
   }
 }

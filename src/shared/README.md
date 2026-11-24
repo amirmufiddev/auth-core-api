@@ -92,7 +92,7 @@ type OrderCreatedPayload = EventPayload<'order.created'>;
 
 ### 2. Multi-Tenant RLS (Row Level Security)
 
-RLS Context menggunakan `AsyncLocalStorage` untuk menyimpan `organizationId` per-request tanpa harus pass parameter di setiap fungsi.
+RLS Context menggunakan `AsyncLocalStorage` untuk menyimpan `tenantId` dan `organizationId` per-request tanpa harus pass parameter di setiap fungsi.
 
 #### Get Current Organization ID
 
@@ -116,11 +116,13 @@ const orders = await this.orderRepo.find({
 ```typescript
 import { RlsContext } from '@/shared/database/rls-context';
 
-// Jalankan callback dengan organization context tertentu
-const result = RlsContext.run('org-123', () => {
-  // Semua fungsi dalam scope ini mendapat organizationId = 'org-123'
-  return this.orderService.processOrder('o-456');
-});
+// Jalankan callback dengan tenant dan organization context tertentu
+const result = RlsContext.run(
+  { tenantId: 'ten_123', organizationId: 'org_123' },
+  () => {
+    return this.orderService.processOrder('o-456');
+  },
+);
 ```
 
 #### Auto-Set via Interceptor
