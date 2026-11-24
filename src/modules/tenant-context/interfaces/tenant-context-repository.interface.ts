@@ -31,7 +31,9 @@ export interface TenantApiKeyRecord {
 
 export interface ITenantContextRepository {
   findTenantStatus(tenantId: string): Promise<'active' | 'suspended' | null>;
-  findUserTenantId(userId: string): Promise<{ tenantId: string | null } | null>;
+  findUserTenantId(
+    userId: string,
+  ): Promise<{ tenantId: string | null; banned?: boolean | null } | null>;
   findOrganizationById(
     organizationId: string,
   ): Promise<TenantOrganizationSummary | null>;

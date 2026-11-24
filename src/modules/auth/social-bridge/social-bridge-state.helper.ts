@@ -127,6 +127,18 @@ export function createSignedState(
   return `${encoded}.${sig}`;
 }
 
+export function signSessionCookieValue(
+  configService: ConfigService,
+  sessionToken: string,
+): string {
+  const secret = getSigningSecret(configService);
+  const signature = crypto
+    .createHmac('sha256', secret)
+    .update(sessionToken)
+    .digest('base64');
+  return encodeURIComponent(`${sessionToken}.${signature}`);
+}
+
 export function verifySignedState(
   configService: ConfigService,
   state: string,

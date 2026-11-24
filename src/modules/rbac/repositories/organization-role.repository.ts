@@ -59,4 +59,16 @@ export class OrganizationRoleRepository implements IOrganizationRoleRepository {
 
     return rows[0];
   }
+
+  async findOrganizationTenantId(
+    organizationId: string,
+  ): Promise<string | null> {
+    const rows = await this.db
+      .select({ tenantId: schema.organization.tenantId })
+      .from(schema.organization)
+      .where(eq(schema.organization.id, organizationId))
+      .limit(1);
+
+    return rows[0]?.tenantId ?? null;
+  }
 }

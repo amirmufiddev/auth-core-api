@@ -1,4 +1,5 @@
 export * from './platform-console.module';
+export * from './controllers/auth-config.controller';
 export * from './interfaces';
 export * from './dto';
 export * from './services/platform-audit.service';

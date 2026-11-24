@@ -1,3 +1,4 @@
+import { sql } from 'drizzle-orm';
 import {
   pgTable,
   text,
@@ -36,10 +37,12 @@ export const account = pgTable(
   (table) => [
     index('idx_account_tenant_id').on(table.tenantId),
     index('idx_account_user_id').on(table.userId),
-    uniqueIndex('idx_account_provider_account_unique').on(
-      table.providerId,
-      table.accountId,
-    ),
+    uniqueIndex('uq_account_platform_provider_account')
+      .on(table.providerId, table.accountId)
+      .where(sql`${table.tenantId} IS NULL`),
+    uniqueIndex('uq_account_tenant_provider_account')
+      .on(table.tenantId, table.providerId, table.accountId)
+      .where(sql`${table.tenantId} IS NOT NULL`),
   ],
 );
 

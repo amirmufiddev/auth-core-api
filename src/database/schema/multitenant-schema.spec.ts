@@ -148,6 +148,44 @@ describe('Multi-Tenant Drizzle Schema', () => {
     ]);
   });
 
+  it('should configure 2 partial unique indexes on account and remove global provider/account unique index', () => {
+    const accountConfig = getTableConfig(schema.account);
+    expect(
+      accountConfig.indexes.find(
+        (i) => i.config.name === 'idx_account_provider_account_unique',
+      ),
+    ).toBeUndefined();
+
+    const platformIdx = accountConfig.indexes.find(
+      (i) => i.config.name === 'uq_account_platform_provider_account',
+    );
+    expect(platformIdx).toBeDefined();
+    expect(platformIdx?.config.unique).toBe(true);
+    expect(platformIdx?.config.columns.map((c) => c.name)).toEqual([
+      'provider_id',
+      'account_id',
+    ]);
+    expect(platformIdx?.config.where).toBeDefined();
+    expect(dialect.sqlToQuery(platformIdx!.config.where!).sql).toContain(
+      'IS NULL',
+    );
+
+    const tenantIdx = accountConfig.indexes.find(
+      (i) => i.config.name === 'uq_account_tenant_provider_account',
+    );
+    expect(tenantIdx).toBeDefined();
+    expect(tenantIdx?.config.unique).toBe(true);
+    expect(tenantIdx?.config.columns.map((c) => c.name)).toEqual([
+      'tenant_id',
+      'provider_id',
+      'account_id',
+    ]);
+    expect(tenantIdx?.config.where).toBeDefined();
+    expect(dialect.sqlToQuery(tenantIdx!.config.where!).sql).toContain(
+      'IS NOT NULL',
+    );
+  });
+
   it('should use set null on auditTrailLogs.tenantId FK and cascade on operational tables', () => {
     const auditConfig = getTableConfig(schema.auditTrailLogs);
     const auditTenantFk = auditConfig.foreignKeys.find((fk) =>

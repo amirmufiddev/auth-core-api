@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { DatabaseModule } from '@/database/database.module';
 import { AuthModule } from '@/modules/auth';
 import { EmailModule } from '@/modules/email';
+import { FeatureTierModule } from '@/modules/feature-tier';
 import { RbacModule } from '@/modules/rbac';
 import { AuthConfigController } from './controllers/auth-config.controller';
 import { PlatformConsoleController } from './controllers/platform-console.controller';
@@ -35,7 +36,13 @@ import { PlatformSessionsService } from './services/platform-sessions.service';
 import { PlatformUsersService } from './services/platform-users.service';
 
 @Module({
-  imports: [DatabaseModule, AuthModule, EmailModule, RbacModule],
+  imports: [
+    DatabaseModule,
+    AuthModule,
+    EmailModule,
+    FeatureTierModule,
+    RbacModule,
+  ],
   controllers: [AuthConfigController, PlatformConsoleController],
   providers: [
     {

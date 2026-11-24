@@ -1,9 +1,15 @@
 import { describe, expect, it } from 'bun:test';
-import { ForbiddenException, UnauthorizedException } from '@nestjs/common';
+import {
+  ForbiddenException,
+  NotFoundException,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { memoryAdapter, type MemoryDB } from 'better-auth/adapters/memory';
 import { TenantContextStorage } from '@/modules/tenant';
 import {
   buildDefaultFeatureConfigFromEnv,
+  createAuthInstance,
   resolveClampedAccessTokenTtlSeconds,
   resolveClampedJwtExpirationTime,
 } from '@/modules/auth/auth';
@@ -535,5 +541,249 @@ describe('TenantContextService & POS Integration', () => {
       () => guard.canActivate(makeExecutionContext({ 'x-api-key': posRawKey })),
     );
     expect(allowed).toBe(true);
+  });
+
+  it('should throw NotFoundException in getSessionContext when userId does not exist', async () => {
+    const { repo } = createInMemoryRepo();
+    const service = new TenantContextService(repo);
+
+    await expect(
+      service.getSessionContext({
+        tenantId: 'ten_pos',
+        userId: 'usr_nonexistent',
+        activeOrganizationId: null,
+      }),
+    ).rejects.toThrow(NotFoundException);
+  });
+
+  it('should verify OAuth 2.1 / Better Auth JWT Bearer tokens via JWKS, enforce tenant_id, validate user in DB, and derive activeOrganizationId', async () => {
+    const { repo } = createInMemoryRepo();
+    const service = new TenantContextService(repo);
+
+    const memoryDb: MemoryDB = {
+      tenant: [
+        {
+          id: 'ten_pos',
+          slug: 'pos',
+          name: 'POS Asep',
+          status: 'active',
+          tierId: 'tier_business',
+          configVersion: 1,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+        {
+          id: 'ten_bima',
+          slug: 'bima',
+          name: 'Bima Shop',
+          status: 'active',
+          tierId: 'tier_business',
+          configVersion: 1,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+      ],
+      user: [
+        {
+          id: 'usr_asep',
+          tenantId: 'ten_pos',
+          name: 'Asep',
+          email: 'asep@pos.id',
+          emailVerified: true,
+          banned: false,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+        {
+          id: 'usr_bima',
+          tenantId: 'ten_bima',
+          name: 'Bima',
+          email: 'bima@bima.id',
+          emailVerified: true,
+          banned: false,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+      ],
+      session: [
+        {
+          id: 'sess_asep',
+          tenantId: 'ten_pos',
+          userId: 'usr_asep',
+          token: 'tok_asep_sess',
+          activeOrganizationId: 'org_warung',
+          expiresAt: new Date(Date.now() + 3600_000),
+          createdAt: new Date(),
+          updatedAt: new Date(),
+          ipAddress: null,
+          userAgent: null,
+        },
+        {
+          id: 'sess_bima',
+          tenantId: 'ten_bima',
+          userId: 'usr_bima',
+          token: 'tok_bima_sess',
+          activeOrganizationId: 'org_bima',
+          expiresAt: new Date(Date.now() + 3600_000),
+          createdAt: new Date(),
+          updatedAt: new Date(),
+          ipAddress: null,
+          userAgent: null,
+        },
+      ],
+      account: [],
+      verification: [],
+      jwks: [],
+    };
+
+    const configService = {
+      get: (key: string) => {
+        if (key === 'app') {
+          return {
+            appName: 'AuthCore',
+            appVersion: '1.0.0',
+            baseUrl: 'http://localhost:2001',
+            corsOrigins: ['http://localhost:3000'],
+            fallbackLanguage: 'id',
+          };
+        }
+        if (key === 'auth') {
+          return {
+            url: 'http://localhost:2001',
+            secret: 'test-secret-min-32-chars-here-for-testing-only',
+            path: '/api/auth',
+            google: { clientId: '', clientSecret: '' },
+            useSecureCookies: false,
+            clientUrl: 'http://localhost:3000',
+            errorURL: 'http://localhost:3000/error',
+            inviteURL: 'http://localhost:3000/invite',
+            invitationExpiresIn: 86400,
+            session: {
+              expiresIn: 604800,
+              updateAge: 86400,
+              cookieCache: { enabled: false, maxAge: 300 },
+            },
+          };
+        }
+        return undefined;
+      },
+    } as unknown as ConfigService;
+
+    const fc = buildDefaultFeatureConfigFromEnv(configService);
+    fc.jwt.enabled = true;
+    fc.oauthProvider.enabled = true;
+    fc.organization.enabled = true;
+    fc.rateLimit.enabled = false;
+
+    const posAuth = createAuthInstance({
+      configService,
+      database: memoryAdapter(memoryDb),
+      tenantContext: {
+        tenantId: 'ten_pos',
+        slug: 'pos',
+        tierId: 'tier_business',
+        configVersion: 1,
+        source: 'path',
+      },
+      tenantStatus: 'active',
+      featureConfig: fc,
+      resolveTenantClaims: (userId, activeOrganizationId) =>
+        Promise.resolve({
+          tenant_id: userId === 'usr_bima' ? 'ten_bima' : 'ten_pos',
+          active_organization_id: activeOrganizationId ?? 'org_warung',
+          org_role: 'owner',
+          org_permissions: ['member:read'],
+        }),
+    });
+
+    // Sign a real JWT via Better Auth jwt plugin using an internal cookie-less getToken call or handler
+    const { token: posJwt } = await (posAuth.api as any).signJWT({
+      body: {
+        payload: {
+          sub: 'usr_asep',
+          tenant_id: 'ten_pos',
+          active_organization_id: 'org_warung',
+          iss: 'http://localhost:2001/api/auth',
+          aud: 'http://localhost:2001/api/auth/oauth2/userinfo',
+        },
+      },
+    });
+    expect(typeof posJwt).toBe('string');
+
+    const { token: crossTenantJwt } = await (posAuth.api as any).signJWT({
+      body: {
+        payload: {
+          sub: 'usr_bima',
+          tenant_id: 'ten_bima',
+          active_organization_id: 'org_bima',
+          iss: 'http://localhost:2001/api/auth',
+          aud: 'http://localhost:2001/api/auth/oauth2/userinfo',
+        },
+      },
+    });
+
+    const authRegistry = {
+      getForContext: () => Promise.resolve(posAuth),
+    };
+    const guard = new TenantApiOrBearerGuard(authRegistry as never, service);
+
+    const makeReq = (authValue: string) => {
+      const req: Record<string, unknown> = {
+        headers: { authorization: authValue },
+      };
+      return {
+        req,
+        ctx: {
+          switchToHttp: () => ({ getRequest: () => req }),
+        } as never,
+      };
+    };
+
+    const posCtx = {
+      tenantId: 'ten_pos',
+      slug: 'pos',
+      tierId: 'tier_business',
+      configVersion: 1,
+      source: 'path' as const,
+    };
+
+    // 1. Valid OAuth 2.1 JWT Bearer -> authenticates & populates activeOrganizationId
+    const valid = makeReq(`Bearer ${posJwt}`);
+    const ok = await TenantContextStorage.run(posCtx, () =>
+      guard.canActivate(valid.ctx),
+    );
+    expect(ok).toBe(true);
+    expect(valid.req.tenantAuthContext).toEqual({
+      authType: 'bearer',
+      tenantId: 'ten_pos',
+      userId: 'usr_asep',
+      activeOrganizationId: 'org_warung',
+    });
+
+    const controller = new TenantContextController(service);
+    const sessionDto = await controller.getSessionContext(valid.req as never);
+    expect(sessionDto.userId).toBe('usr_asep');
+    expect(sessionDto.activeOrganizationId).toBe('org_warung');
+    expect(sessionDto.orgRole).toBe('owner');
+
+    // 2. Cross-tenant JWT claim -> 403 CROSS_TENANT_SESSION
+    const cross = makeReq(`Bearer ${crossTenantJwt}`);
+    await expect(
+      TenantContextStorage.run(posCtx, () => guard.canActivate(cross.ctx)),
+    ).rejects.toThrow(ForbiddenException);
+
+    // 3. Invalid JWT -> 401 UnauthorizedException
+    const invalid = makeReq('Bearer not.a.valid.jwt');
+    await expect(
+      TenantContextStorage.run(posCtx, () => guard.canActivate(invalid.ctx)),
+    ).rejects.toThrow(UnauthorizedException);
+
+    // 4. Banned user JWT -> 403 ForbiddenException
+    repo.findUserTenantId = () =>
+      Promise.resolve({ tenantId: 'ten_pos', banned: true });
+    const bannedReq = makeReq(`Bearer ${posJwt}`);
+    await expect(
+      TenantContextStorage.run(posCtx, () => guard.canActivate(bannedReq.ctx)),
+    ).rejects.toThrow(ForbiddenException);
   });
 });

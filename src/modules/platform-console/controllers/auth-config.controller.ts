@@ -2,8 +2,10 @@ import { Body, Controller, Get, Put, VERSION_NEUTRAL } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { AllowAnonymous, Session } from '@thallesp/nestjs-better-auth';
 import { AuthFeatureConfigService } from '@/modules/auth';
+import { FeatureResolutionService } from '@/modules/feature-tier';
 import { RequirePlatformPermission } from '@/modules/rbac';
-import { UpdateAuthConfigDto } from '../dto/platform-console.dto';
+import { TenantContextStorage } from '@/modules/tenant';
+import { UpdateAuthConfigDto } from '../dto/auth-config.dto';
 import { PlatformAuditService } from '../services/platform-audit.service';
 
 interface SessionPayload {
@@ -19,6 +21,7 @@ interface SessionPayload {
 export class AuthConfigController {
   constructor(
     private readonly featureConfigService: AuthFeatureConfigService,
+    private readonly featureResolutionService: FeatureResolutionService,
     private readonly auditService: PlatformAuditService,
   ) {}
 
@@ -28,6 +31,12 @@ export class AuthConfigController {
     summary: 'Ambil status aktif/non-aktif seluruh fitur & plugin Better Auth',
   })
   getConfig() {
+    const ctx = TenantContextStorage.get();
+    if (ctx?.tenantId && ctx.source !== 'platform') {
+      return this.featureResolutionService.getPublicCapabilitiesForTenant(
+        ctx.tenantId,
+      );
+    }
     return this.featureConfigService.getPublicConfig();
   }
 

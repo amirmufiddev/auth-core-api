@@ -14,7 +14,7 @@ RED    := \033[31m
 RESET  := \033[0m
 BOLD   := \033[1m
 
-.PHONY: help env install setup up infra-up down infra-down infra-logs docker-up docker-down docker-logs docker-clean db-generate db-migrate db-seed db-seed-regional db-seed-org db-seed-all db-studio db-reset dev build start lint format test test-cov depcheck check clean
+.PHONY: help env install setup up infra-up down infra-down infra-logs docker-up docker-down docker-logs docker-clean db-generate db-migrate db-seed db-seed-regional db-seed-all db-studio db-reset dev build start lint format test test-cov depcheck check clean
 
 ##@ Help
 help: ## Tampilkan daftar target dan bantuan penggunaan
@@ -84,17 +84,10 @@ db-seed-regional: ## Jalankan seeder data regional (wilayah)
 	@echo -e "$(CYAN)Menjalankan database seed regional...$(RESET)"
 	$(BUN) run db:seed:regional
 
-db-seed-org: ## Jalankan seeder organisasi (members dan invitations)
-	@echo -e "$(CYAN)Menjalankan seeder organisasi...$(RESET)"
-	$(BUN) run db:seed:org-members
-	$(BUN) run db:seed:org-invitations
-
 db-seed-all: ## Jalankan semua tahapan seeder database secara berurutan
 	@echo -e "$(CYAN)Menjalankan semua seeder database...$(RESET)"
 	$(BUN) run db:seed
 	$(BUN) run db:seed:regional
-	$(BUN) run db:seed:org-members
-	$(BUN) run db:seed:org-invitations
 	@echo -e "$(GREEN)✓ Semua seeder berhasil dijalankan$(RESET)"
 
 db-studio: ## Buka UI Drizzle Studio untuk eksplorasi database

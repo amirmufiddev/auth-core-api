@@ -110,12 +110,14 @@ function getBetterAuthTestModule(auth: {
     forRoot: (opts: {
       auth: unknown;
       disableGlobalAuthGuard: boolean;
+      disableTrustedOriginsCors?: boolean;
     }) => DynamicModule;
   };
   if (typeof NestBetterAuthPkg.AuthModule === 'function') {
     return pkgAuthModule.forRoot({
       auth,
       disableGlobalAuthGuard: true,
+      disableTrustedOriginsCors: true,
     });
   }
   return RealFastifyBetterAuthModule.forRoot({ auth });
@@ -710,6 +712,45 @@ describe('createTenantRewriteUrl & registerTenantResolverHook', () => {
     });
     expect(mismatchRes.statusCode).toBe(400);
     expect(mismatchRes.json().code).toBe('TENANT_MISMATCH');
+
+    await app.close();
+  });
+
+  it('should ignore spoofed x-forwarded-host when trustProxy is false', async () => {
+    const lookupSpy = mock((slug: string) =>
+      Promise.resolve(tenantMap[slug] ?? null),
+    );
+    const moduleRef = await Test.createTestingModule({
+      controllers: [TenantProbeController],
+    }).compile();
+
+    const app = moduleRef.createNestApplication<NestFastifyApplication>(
+      new FastifyAdapter({
+        rewriteUrl: createTenantRewriteUrl(),
+        trustProxy: false,
+      }),
+    );
+
+    registerTenantResolverHook(
+      app,
+      lookupSpy,
+      ['localhost', 'auth.authcore.local'],
+      { tenantBaseDomain: 'authcore.local' },
+    );
+    await app.init();
+
+    const fastify = app.getHttpAdapter().getInstance();
+    const res = await fastify.inject({
+      method: 'GET',
+      url: '/api/context/session',
+      headers: {
+        host: 'auth.authcore.local',
+        'x-forwarded-host': 'pos-amir.authcore.local',
+      },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(lookupSpy).not.toHaveBeenCalled();
+    expect(res.json().context.source).toBe('platform');
 
     await app.close();
   });

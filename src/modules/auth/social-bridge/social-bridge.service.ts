@@ -11,6 +11,7 @@ import { BETTER_AUTH_REDIS_CLIENT } from '@/common/auth/better-auth-cache.module
 import {
   createSignedState,
   getCentralCallbackBaseUrl,
+  signSessionCookieValue,
   validateReturnTo,
   verifySignedState,
   type SignedSocialStatePayload,
@@ -218,6 +219,7 @@ export class SocialBridgeService {
       });
     }
 
+    const normalizedEmail = payload.email.trim().toLowerCase();
     const existingAccount = await this.repository.findAccountByProvider(
       payload.tenantId,
       payload.provider,
@@ -230,7 +232,7 @@ export class SocialBridgeService {
     } else {
       const existingUser = await this.repository.findUserByTenantEmail(
         payload.tenantId,
-        payload.email,
+        normalizedEmail,
       );
       if (existingUser) {
         if (!payload.emailVerified) {
@@ -251,7 +253,7 @@ export class SocialBridgeService {
       } else {
         const created = await this.repository.createUserWithAccount({
           tenantId: payload.tenantId,
-          email: payload.email,
+          email: normalizedEmail,
           name: payload.name,
           emailVerified: payload.emailVerified,
           provider: payload.provider,
@@ -273,5 +275,17 @@ export class SocialBridgeService {
       sessionToken,
       redirectTo: validateReturnTo(payload.returnTo),
     };
+  }
+
+  signSessionCookieValue(sessionToken: string): string {
+    return signSessionCookieValue(this.configService, sessionToken);
+  }
+
+  shouldUseSecureCookies(): boolean {
+    return Boolean(
+      this.configService.get<boolean>('auth.useSecureCookies', {
+        infer: true,
+      }),
+    );
   }
 }

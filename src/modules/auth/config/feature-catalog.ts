@@ -63,9 +63,19 @@ export type BetterAuthFeatureId =
   | 'creem'
   | 'chargebee';
 
+export interface FeatureAvailableSetting {
+  key: string;
+  label: string;
+  type: string;
+  options?: Array<{ label: string; value: string | number | boolean } | string>;
+  defaultValue?: string | number | boolean;
+  required?: boolean;
+}
+
 export interface FeatureRuntimeConfig {
   enabled: boolean;
   settings: Record<string, string | number | boolean>;
+  secretsConfigured?: Record<string, boolean>;
 }
 
 export type FeatureConfigMap = Record<
@@ -83,6 +93,7 @@ export interface FeatureCatalogEntry {
   dependencies?: BetterAuthFeatureId[];
   defaultEnabled: boolean;
   defaultSettings: Record<string, string | number | boolean>;
+  availableSetting?: FeatureAvailableSetting[];
 }
 
 function envBool(key: string, fallback: boolean): boolean {
@@ -708,12 +719,268 @@ export const BETTER_AUTH_FEATURE_CATALOG: FeatureCatalogEntry[] = [
   },
 ];
 
+const SECRET_SETTING_KEY_PATTERN = /secret|token|password|apikey|private/i;
+
+const FEATURE_SECRET_SETTINGS: Partial<
+  Record<BetterAuthFeatureId, FeatureAvailableSetting[]>
+> = {
+  genericOAuth: [
+    { key: 'clientId', label: 'Client ID', type: 'string', required: true },
+    {
+      key: 'clientSecret',
+      label: 'Client Secret',
+      type: 'secret',
+      required: true,
+    },
+  ],
+  socialGoogle: [
+    { key: 'clientId', label: 'Client ID', type: 'string', required: true },
+    {
+      key: 'clientSecret',
+      label: 'Client Secret',
+      type: 'secret',
+      required: true,
+    },
+  ],
+  socialGithub: [
+    { key: 'clientId', label: 'Client ID', type: 'string', required: true },
+    {
+      key: 'clientSecret',
+      label: 'Client Secret',
+      type: 'secret',
+      required: true,
+    },
+  ],
+  socialMicrosoft: [
+    { key: 'clientId', label: 'Client ID', type: 'string', required: true },
+    {
+      key: 'clientSecret',
+      label: 'Client Secret',
+      type: 'secret',
+      required: true,
+    },
+  ],
+  socialApple: [
+    { key: 'clientId', label: 'Client ID', type: 'string', required: true },
+    {
+      key: 'clientSecret',
+      label: 'Client Secret',
+      type: 'secret',
+      required: true,
+    },
+  ],
+  socialDiscord: [
+    { key: 'clientId', label: 'Client ID', type: 'string', required: true },
+    {
+      key: 'clientSecret',
+      label: 'Client Secret',
+      type: 'secret',
+      required: true,
+    },
+  ],
+  socialGitlab: [
+    { key: 'clientId', label: 'Client ID', type: 'string', required: true },
+    {
+      key: 'clientSecret',
+      label: 'Client Secret',
+      type: 'secret',
+      required: true,
+    },
+  ],
+  socialSlack: [
+    { key: 'clientId', label: 'Client ID', type: 'string', required: true },
+    {
+      key: 'clientSecret',
+      label: 'Client Secret',
+      type: 'secret',
+      required: true,
+    },
+  ],
+  socialLinkedin: [
+    { key: 'clientId', label: 'Client ID', type: 'string', required: true },
+    {
+      key: 'clientSecret',
+      label: 'Client Secret',
+      type: 'secret',
+      required: true,
+    },
+  ],
+  socialTwitter: [
+    { key: 'clientId', label: 'Client ID', type: 'string', required: true },
+    {
+      key: 'clientSecret',
+      label: 'Client Secret',
+      type: 'secret',
+      required: true,
+    },
+  ],
+  socialFigma: [
+    { key: 'clientId', label: 'Client ID', type: 'string', required: true },
+    {
+      key: 'clientSecret',
+      label: 'Client Secret',
+      type: 'secret',
+      required: true,
+    },
+  ],
+  socialNotion: [
+    { key: 'clientId', label: 'Client ID', type: 'string', required: true },
+    {
+      key: 'clientSecret',
+      label: 'Client Secret',
+      type: 'secret',
+      required: true,
+    },
+  ],
+  socialLinear: [
+    { key: 'clientId', label: 'Client ID', type: 'string', required: true },
+    {
+      key: 'clientSecret',
+      label: 'Client Secret',
+      type: 'secret',
+      required: true,
+    },
+  ],
+  socialVercel: [
+    { key: 'clientId', label: 'Client ID', type: 'string', required: true },
+    {
+      key: 'clientSecret',
+      label: 'Client Secret',
+      type: 'secret',
+      required: true,
+    },
+  ],
+  captcha: [
+    { key: 'secretKey', label: 'Secret Key', type: 'secret', required: true },
+  ],
+  haveIBeenPwned: [
+    { key: 'apiKey', label: 'API Key', type: 'secret', required: false },
+  ],
+  sso: [
+    {
+      key: 'clientSecret',
+      label: 'Client Secret',
+      type: 'secret',
+      required: false,
+    },
+  ],
+  scim: [
+    { key: 'scimToken', label: 'SCIM Token', type: 'secret', required: false },
+  ],
+  stripe: [
+    { key: 'secretKey', label: 'Secret Key', type: 'secret', required: true },
+    {
+      key: 'webhookSecret',
+      label: 'Webhook Secret',
+      type: 'secret',
+      required: true,
+    },
+  ],
+  polar: [
+    {
+      key: 'accessToken',
+      label: 'Access Token',
+      type: 'secret',
+      required: true,
+    },
+    {
+      key: 'webhookSecret',
+      label: 'Webhook Secret',
+      type: 'secret',
+      required: true,
+    },
+  ],
+  autumn: [
+    { key: 'secretKey', label: 'Secret Key', type: 'secret', required: true },
+  ],
+  dodoPayments: [
+    { key: 'apiKey', label: 'API Key', type: 'secret', required: true },
+    {
+      key: 'webhookSecret',
+      label: 'Webhook Secret',
+      type: 'secret',
+      required: true,
+    },
+  ],
+  creem: [
+    { key: 'apiKey', label: 'API Key', type: 'secret', required: true },
+    {
+      key: 'webhookSecret',
+      label: 'Webhook Secret',
+      type: 'secret',
+      required: true,
+    },
+  ],
+  chargebee: [
+    { key: 'apiKey', label: 'API Key', type: 'secret', required: true },
+    {
+      key: 'webhookSecret',
+      label: 'Webhook Secret',
+      type: 'secret',
+      required: true,
+    },
+  ],
+};
+
+function settingKeyToLabel(key: string): string {
+  return key
+    .replace(/([A-Z])/g, ' $1')
+    .replace(/^./, (c) => c.toUpperCase())
+    .trim();
+}
+
+export function buildCatalogAvailableSettings(
+  item: Pick<FeatureCatalogEntry, 'id' | 'defaultSettings'>,
+): FeatureAvailableSetting[] {
+  const settings: FeatureAvailableSetting[] = [];
+  const seenKeys = new Set<string>();
+
+  for (const [key, value] of Object.entries(item.defaultSettings)) {
+    seenKeys.add(key);
+    const isSecret = SECRET_SETTING_KEY_PATTERN.test(key);
+    const type = isSecret
+      ? 'secret'
+      : typeof value === 'boolean'
+        ? 'boolean'
+        : typeof value === 'number'
+          ? 'number'
+          : 'string';
+
+    settings.push({
+      key,
+      label: settingKeyToLabel(key),
+      type,
+      ...(isSecret ? {} : { defaultValue: value }),
+    });
+  }
+
+  for (const field of FEATURE_SECRET_SETTINGS[item.id] ?? []) {
+    if (!seenKeys.has(field.key)) {
+      seenKeys.add(field.key);
+      settings.push(field);
+    }
+  }
+
+  return settings;
+}
+
+for (const entry of BETTER_AUTH_FEATURE_CATALOG) {
+  entry.availableSetting = buildCatalogAvailableSettings(entry);
+}
+
 export const BETTER_AUTH_FEATURE_CATALOG_MAP: Record<
   BetterAuthFeatureId,
   FeatureCatalogEntry
 > = Object.fromEntries(
   BETTER_AUTH_FEATURE_CATALOG.map((item) => [item.id, item]),
 ) as Record<BetterAuthFeatureId, FeatureCatalogEntry>;
+
+export function getSecretFieldKeys(id: BetterAuthFeatureId): string[] {
+  const entry = BETTER_AUTH_FEATURE_CATALOG_MAP[id];
+  return (entry?.availableSetting ?? [])
+    .filter((s) => s.type === 'secret')
+    .map((s) => s.key);
+}
 
 export function buildDefaultFeatureConfigFromEnv(): FeatureConfigMap {
   const map = {} as FeatureConfigMap;
@@ -787,18 +1054,37 @@ export function normalizeFeatureDependencies(
 
 export function sanitizeFeatureConfigForPublic(
   config: FeatureConfigMap,
+  secretsByFeature?: Partial<
+    Record<BetterAuthFeatureId, Record<string, unknown>>
+  >,
 ): FeatureConfigMap {
   const sanitized = mergeFeatureConfig(config);
   for (const item of BETTER_AUTH_FEATURE_CATALOG) {
+    const secretKeys = new Set(getSecretFieldKeys(item.id));
     const settings = { ...sanitized[item.id].settings };
     for (const key of Object.keys(settings)) {
-      if (/secret|token|password|apikey|private/i.test(key)) {
+      if (secretKeys.has(key) || SECRET_SETTING_KEY_PATTERN.test(key)) {
         delete settings[key];
       }
     }
+
+    const featureSecrets = secretsByFeature?.[item.id];
+    const secretsConfigured: Record<string, boolean> = {};
+    for (const key of secretKeys) {
+      secretsConfigured[key] = Boolean(featureSecrets?.[key]);
+    }
+    for (const key of Object.keys(featureSecrets ?? {})) {
+      if (!(key in secretsConfigured)) {
+        secretsConfigured[key] = Boolean(featureSecrets?.[key]);
+      }
+    }
+
     sanitized[item.id] = {
       enabled: sanitized[item.id].enabled,
       settings,
+      ...(secretsByFeature !== undefined || secretKeys.size > 0
+        ? { secretsConfigured }
+        : {}),
     };
   }
   return sanitized;

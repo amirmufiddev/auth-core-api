@@ -1,6 +1,9 @@
 import { describe, expect, it, mock } from 'bun:test';
 import { ConfigService } from '@nestjs/config';
-import { AuthRuntimeRegistry } from './auth-runtime.registry';
+import {
+  AuthRuntimeRegistry,
+  CATALOG_VERSION_REDIS_KEY,
+} from './auth-runtime.registry';
 import { createAuthInstance } from './auth';
 import { getSharedPool } from '@/database/database.module';
 import {
@@ -568,5 +571,49 @@ describe('AuthRuntimeRegistry', () => {
       });
       expect(result).toBe('passkey:Acme');
     });
+  });
+
+  it('should refresh catalogVersion from Redis when cache TTL (10s) expires after missed Pub/Sub events', async () => {
+    const redis = createMockRedis();
+    await redis.set(CATALOG_VERSION_REDIS_KEY, '1');
+
+    const registry = new AuthRuntimeRegistry(
+      redis as any,
+      createMockConfigService(),
+    );
+
+    let buildCalls = 0;
+    registry.initialize({
+      platformInstance: {} as any,
+      buildPlatformAuth: () => ({}) as any,
+      buildTenantAuth: () => {
+        buildCalls += 1;
+        return { seq: buildCalls } as any;
+      },
+    });
+
+    const ctx: ResolvedTenantContext = {
+      tenantId: 't-ttl',
+      slug: 'ttl-tenant',
+      tierId: 'tier_free',
+      configVersion: 1,
+      source: 'subdomain',
+    };
+
+    const first = (await registry.getForContext(ctx)) as any;
+    expect(first.seq).toBe(1);
+
+    // Update Redis directly without Pub/Sub notification
+    await redis.set(CATALOG_VERSION_REDIS_KEY, '2');
+
+    // Within 10s TTL, still uses cached catalogVersion=1
+    const withinTtl = (await registry.getForContext(ctx)) as any;
+    expect(withinTtl.seq).toBe(1);
+
+    // Simulate expired catalogVersion cache (> 10s ago)
+    (registry as any).catalogVersionFetchedAt = Date.now() - 15_000;
+    const afterTtl = (await registry.getForContext(ctx)) as any;
+    expect(afterTtl.seq).toBe(2);
+    expect(buildCalls).toBe(2);
   });
 });

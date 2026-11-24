@@ -14,6 +14,7 @@ import {
   type UpdateTenantInput,
 } from '../interfaces/tenant-repository.interface';
 import {
+  buildTenantSlugCacheKey,
   publishTenantInvalidation,
   readTenantSlugCache,
   toTenantSummaryCache,
@@ -222,5 +223,17 @@ export class TenantService {
 
   async activateTenant(id: string): Promise<TenantRow> {
     return this.updateTenant(id, { status: 'active' });
+  }
+
+  async invalidateSlugCache(rawSlug: string): Promise<void> {
+    const slug = (rawSlug ?? '').trim().toLowerCase();
+    if (!slug || !this.redisClient?.del) return;
+    try {
+      await this.redisClient.del(buildTenantSlugCacheKey(slug));
+    } catch (err) {
+      this.logger.warn(
+        `Failed to invalidate Redis slug cache for '${slug}': ${(err as Error).message}`,
+      );
+    }
   }
 }

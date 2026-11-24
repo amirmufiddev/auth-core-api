@@ -11,7 +11,11 @@ import {
   BETTER_AUTH_FEATURE_CATALOG_MAP,
   type BetterAuthFeatureId,
 } from '@/modules/auth';
-import { CONFIG_INVALIDATED_CHANNEL, TenantService } from '@/modules/tenant';
+import {
+  CONFIG_INVALIDATED_CHANNEL,
+  TenantService,
+  buildTenantSlugCacheKey,
+} from '@/modules/tenant';
 import type { UpdateTenantFeatureConfigDto } from '../dto/feature-tier.dto';
 import {
   FEATURE_TIER_REPOSITORY_TOKEN,
@@ -127,9 +131,18 @@ export class TenantFeatureConfigService {
 
     const catalogEntry =
       BETTER_AUTH_FEATURE_CATALOG_MAP[feature.code as BetterAuthFeatureId];
+    const isFeatureActive =
+      feature.status === 'active' && catalogEntry?.available !== false;
+    const tierFeatureIds = await this.repo.getTierFeatureIds(tenant.tierId);
+    const isAllowedInTier = tierFeatureIds.includes(feature.id);
 
-    if (dto.enabled) {
-      if (feature.status !== 'active' || catalogEntry?.available === false) {
+    const hasConfigMutation =
+      Boolean(dto.settings && Object.keys(dto.settings).length > 0) ||
+      Boolean(dto.secrets && Object.keys(dto.secrets).length > 0) ||
+      Boolean(dto.clearSecretKeys && dto.clearSecretKeys.length > 0);
+
+    if (dto.enabled || hasConfigMutation) {
+      if (!isFeatureActive) {
         throw BusinessError.badRequest(
           `Fitur '${feature.code}' tidak tersedia (status: ${feature.status}).`,
           'FEATURE_UNAVAILABLE',
@@ -137,8 +150,7 @@ export class TenantFeatureConfigService {
         );
       }
 
-      const tierFeatureIds = await this.repo.getTierFeatureIds(tenant.tierId);
-      if (!tierFeatureIds.includes(feature.id)) {
+      if (!isAllowedInTier) {
         throw BusinessError.forbidden(
           `Fitur '${feature.code}' tidak termasuk dalam tier '${tenant.tierId}'.`,
           'FEATURE_TIER_LOCKED',
@@ -209,9 +221,14 @@ export class TenantFeatureConfigService {
         await this.redisClient.del(
           `${TENANT_FEATURE_CONFIG_CACHE_PREFIX}${tenantId}`,
         );
+        if (tenant.slug) {
+          await this.redisClient.del(buildTenantSlugCacheKey(tenant.slug));
+        }
       } catch {
         // Best-effort cache invalidation
       }
+    } else if (tenant.slug) {
+      await this.tenantService.invalidateSlugCache?.(tenant.slug);
     }
 
     await this.authRuntimeRegistry?.invalidateTenant(
@@ -226,6 +243,7 @@ export class TenantFeatureConfigService {
           JSON.stringify({
             scope: 'tenant',
             tenantId,
+            ...(tenant.slug ? { slug: tenant.slug } : {}),
             configVersion: newConfigVersion,
           }),
         );
@@ -250,8 +268,8 @@ export class TenantFeatureConfigService {
       name: feature.name,
       category: feature.category,
       status: feature.status,
-      allowedInTier: true,
-      enabled: saved.enabled,
+      allowedInTier: isAllowedInTier,
+      enabled: isFeatureActive && isAllowedInTier ? saved.enabled : false,
       configuredEnabled: saved.enabled,
       settings: saved.settings,
       availableSetting: feature.availableSetting ?? [],

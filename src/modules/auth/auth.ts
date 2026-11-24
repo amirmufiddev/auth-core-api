@@ -67,7 +67,10 @@ import {
   type FeatureConfigMap,
   buildDefaultFeatureConfigFromEnv,
 } from './config/feature-catalog';
-import { type ResolvedTenantContext } from '@/modules/tenant';
+import {
+  isAllowedTenantOrigin,
+  type ResolvedTenantContext,
+} from '@/modules/tenant';
 import {
   createTenantDatabaseHooks,
   createTenantMultiTenantPlugins,
@@ -1258,9 +1261,24 @@ const buildPluginsConfig = (
         async sendInvitationEmail(data) {
           if (!deps.emailService) return;
 
+          const tenantBaseDomain =
+            deps.tenantBaseDomain ||
+            deps.configService.get<string>('TENANT_BASE_DOMAIN', {
+              infer: true,
+            }) ||
+            process.env.TENANT_BASE_DOMAIN ||
+            'authcore.local';
+          const effectiveBaseUrl = resolveTenantBaseUrl(
+            baseUrl,
+            deps.tenantContext,
+            tenantBaseDomain,
+          );
+
           const inviteUrl = buildInvitationLink({
             invitationId: data.id,
             inviteURL,
+            baseUrl: effectiveBaseUrl,
+            tenantContext: deps.tenantContext,
           });
           const html = buildOrganizationInvitationEmail({
             inviterName: data.inviter.user.name ?? data.inviter.user.email,
@@ -1269,7 +1287,7 @@ const buildPluginsConfig = (
             role: data.role,
             inviteUrl,
             appName,
-            baseUrl,
+            baseUrl: effectiveBaseUrl,
           });
           await deps.emailService.send({
             to: data.email,
@@ -1359,20 +1377,32 @@ const buildPluginsConfig = (
     );
   }
 
+  const pathPrefix =
+    deps.tenantContext?.source === 'path' && deps.tenantContext.slug
+      ? `/t/${deps.tenantContext.slug}`
+      : '';
+
   // @better-auth/mcp wraps oauthProvider internally and forbids duplicate registration.
   if (fc && isEnabled(fc, 'mcp', false)) {
+    const configuredLoginPage = String(
+      getSetting(fc, 'mcp', 'loginPage', '/login'),
+    );
+    const mcpLoginPage =
+      pathPrefix && configuredLoginPage === '/login'
+        ? `${pathPrefix}/login`
+        : configuredLoginPage;
     pluginsList.push(
       mcp({
-        loginPage: String(getSetting(fc, 'mcp', 'loginPage', '/login')),
-        consentPage: '/consent',
+        loginPage: mcpLoginPage,
+        consentPage: `${pathPrefix}/consent`,
         resource: String(getSetting(fc, 'mcp', 'resource', `${baseUrl}/mcp`)),
       }),
     );
   } else if (fc && isEnabled(fc, 'oauthProvider', false)) {
     pluginsList.push(
       oauthProvider({
-        loginPage: '/login',
-        consentPage: '/consent',
+        loginPage: `${pathPrefix}/login`,
+        consentPage: `${pathPrefix}/consent`,
         accessTokenExpiresIn: resolveClampedAccessTokenTtlSeconds(
           getSetting(fc, 'oauthProvider', 'accessTokenExpiresIn', 900),
         ),
@@ -1667,9 +1697,16 @@ export function resolveTenantBaseUrl(
 }
 
 export const createAuthInstance = (deps: AuthDependencies) => {
-  const { corsOrigins, appName } = deps.configService.get<AppConfig>('app', {
-    infer: true,
-  });
+  const { corsOrigins, appName, nodeEnv } = deps.configService.get<AppConfig>(
+    'app',
+    {
+      infer: true,
+    },
+  );
+  const resolvedNodeEnv =
+    nodeEnv ??
+    deps.configService.get<string>('NODE_ENV', { infer: true }) ??
+    process.env.NODE_ENV;
   const { url, secret, path, google, useSecureCookies, errorURL, session } =
     deps.configService.get<AuthConfig>('auth', {
       infer: true,
@@ -1807,7 +1844,35 @@ export const createAuthInstance = (deps: AuthDependencies) => {
         }
       },
     },
-    trustedOrigins: corsOrigins,
+    trustedOrigins: (request?: Request) => {
+      const staticOrigins = Array.isArray(corsOrigins) ? corsOrigins : [];
+      const rawOriginHeader =
+        request?.headers.get('origin') ?? request?.headers.get('referer');
+      if (!rawOriginHeader) {
+        return staticOrigins;
+      }
+
+      let candidateOrigin: string | undefined;
+      try {
+        candidateOrigin = new URL(rawOriginHeader).origin;
+      } catch {
+        candidateOrigin = undefined;
+      }
+
+      if (
+        candidateOrigin &&
+        isAllowedTenantOrigin(candidateOrigin, {
+          explicitOrigins: staticOrigins,
+          tenantBaseDomain,
+          nodeEnv: resolvedNodeEnv,
+          allowWildcardInNonProd: true,
+        })
+      ) {
+        return Array.from(new Set([...staticOrigins, candidateOrigin]));
+      }
+
+      return staticOrigins;
+    },
     advanced: {
       cookiePrefix: cookieConfig.cookiePrefix,
       useSecureCookies,

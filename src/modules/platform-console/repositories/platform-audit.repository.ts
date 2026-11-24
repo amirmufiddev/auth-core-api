@@ -6,6 +6,7 @@ import {
   eq,
   gte,
   ilike,
+  isNull,
   lte,
   or,
   sql,
@@ -30,13 +31,16 @@ export class PlatformAuditRepository implements IPlatformAuditRepository {
   ) {}
 
   async create(input: CreatePlatformAuditRecord): Promise<void> {
-    await this.db.insert(schema.auditTrailLogs).values(input);
+    await this.db.insert(schema.auditTrailLogs).values({
+      ...input,
+      tenantId: null,
+    });
   }
 
   async listPaginated(
     query: ListAuditLogsQuery,
   ): Promise<{ items: AuditTrailLog[]; total: number }> {
-    const conditions: SQL[] = [];
+    const conditions: SQL[] = [isNull(schema.auditTrailLogs.tenantId)];
 
     const trimmedSearch = query.search?.trim();
     if (trimmedSearch) {
@@ -103,6 +107,7 @@ export class PlatformAuditRepository implements IPlatformAuditRepository {
     return this.db
       .select()
       .from(schema.auditTrailLogs)
+      .where(isNull(schema.auditTrailLogs.tenantId))
       .orderBy(desc(schema.auditTrailLogs.createdAt))
       .limit(Math.max(1, limit));
   }
@@ -111,7 +116,12 @@ export class PlatformAuditRepository implements IPlatformAuditRepository {
     const [row] = await this.db
       .select({ total: count() })
       .from(schema.auditTrailLogs)
-      .where(gte(schema.auditTrailLogs.createdAt, since));
+      .where(
+        and(
+          isNull(schema.auditTrailLogs.tenantId),
+          gte(schema.auditTrailLogs.createdAt, since),
+        ),
+      );
     return Number(row?.total ?? 0);
   }
 
@@ -123,7 +133,12 @@ export class PlatformAuditRepository implements IPlatformAuditRepository {
         total: count(),
       })
       .from(schema.auditTrailLogs)
-      .where(gte(schema.auditTrailLogs.createdAt, since))
+      .where(
+        and(
+          isNull(schema.auditTrailLogs.tenantId),
+          gte(schema.auditTrailLogs.createdAt, since),
+        ),
+      )
       .groupBy(dayExpr);
 
     return rows.map((r) => ({ day: r.day, count: Number(r.total ?? 0) }));

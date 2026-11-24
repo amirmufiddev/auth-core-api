@@ -27,6 +27,7 @@ import * as schema from '@/database/schema';
 import { loadBetterAuthStatement } from '@/modules/rbac/permissions/rbac-permission.loader';
 import { EmailModule, EmailService } from '@/modules/email';
 import { AppLoggerService } from '@/logger/logger.service';
+import { CryptoModule } from '@/common/crypto';
 import {
   BetterAuthCacheModule,
   BETTER_AUTH_SECONDARY_STORAGE,
@@ -44,7 +45,7 @@ const dynamicEsmImport = new Function(
 
 @Global()
 @Module({
-  imports: [DatabaseModule, BetterAuthCacheModule],
+  imports: [DatabaseModule, BetterAuthCacheModule, CryptoModule],
   providers: [AuthFeatureConfigService, AuthRuntimeRegistry],
   exports: [AuthFeatureConfigService, AuthRuntimeRegistry],
 })
@@ -160,7 +161,11 @@ export class AuthRuntimeCoreModule {}
           }
         };
 
-        const initialAuth = buildAuth(currentFeatureConfig);
+        const initialAuth = buildAuth(
+          currentFeatureConfig,
+          null,
+          featureConfigService.getDecryptedSecrets(),
+        );
         registry.initialize({
           platformInstance: initialAuth,
           buildPlatformAuth: async () => {
@@ -173,7 +178,12 @@ export class AuthRuntimeCoreModule {}
                 resolved.decryptedSecrets,
               );
             }
-            return buildAuth(currentFeatureConfig);
+            const reloaded = await featureConfigService.loadFromDatabase();
+            return buildAuth(
+              reloaded,
+              null,
+              featureConfigService.getDecryptedSecrets(),
+            );
           },
           buildTenantAuth: async (ctx) => {
             const resolver = getFeatureResolutionService();
@@ -205,6 +215,7 @@ export class AuthRuntimeCoreModule {}
           auth: registry.createContextAwareProxy(),
           isGlobal: true,
           disableGlobalAuthGuard: false,
+          disableTrustedOriginsCors: true,
         };
       },
     }),

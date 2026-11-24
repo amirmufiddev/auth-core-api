@@ -4,7 +4,9 @@ import {
   Inject,
   Injectable,
   NotFoundException,
+  UnauthorizedException,
 } from '@nestjs/common';
+import { BusinessError } from '@/common/errors/business-error';
 import { getDefaultRolePermissions } from '@/modules/rbac';
 import type {
   ListOrganizationMembersQueryDto,
@@ -84,13 +86,45 @@ export class TenantContextService {
     return this.repo.findApiKeyByHashedKey(rawKey);
   }
 
+  async validateJwtUserForTenant(
+    userId: string,
+    tenantId: string,
+  ): Promise<void> {
+    const userRecord = await this.repo.findUserTenantId(userId);
+    if (!userRecord) {
+      throw new UnauthorizedException(
+        'User pada Bearer token tidak ditemukan.',
+      );
+    }
+    if (userRecord.tenantId !== tenantId) {
+      throw new ForbiddenException({
+        code: 'CROSS_TENANT_SESSION',
+        message: 'User tidak termasuk dalam tenant yang aktif.',
+      });
+    }
+    if (userRecord.banned) {
+      throw new ForbiddenException({
+        code: 'USER_BANNED',
+        message: 'Akun pengguna sedang diblokir.',
+      });
+    }
+  }
+
   async getSessionContext(params: {
     tenantId: string;
     userId: string;
     activeOrganizationId: string | null;
   }): Promise<PosSessionContextDto> {
     const userRecord = await this.repo.findUserTenantId(params.userId);
-    if (userRecord && userRecord.tenantId !== params.tenantId) {
+    if (!userRecord) {
+      const err = BusinessError.notFound('User', params.userId);
+      throw new NotFoundException({
+        code: err.code,
+        message: err.message,
+        ...(err.context ? { context: err.context } : {}),
+      });
+    }
+    if (userRecord.tenantId !== params.tenantId) {
       throw new ForbiddenException({
         code: 'CROSS_TENANT_SESSION',
         message: 'User tidak termasuk dalam tenant yang aktif.',

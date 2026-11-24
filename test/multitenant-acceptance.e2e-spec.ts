@@ -1,12 +1,9 @@
 import 'reflect-metadata';
 import * as crypto from 'node:crypto';
 import {
-  Controller,
-  Get,
   Inject,
   Module,
   ValidationPipe,
-  VERSION_NEUTRAL,
   type DynamicModule,
   type MiddlewareConsumer,
   type NestModule,
@@ -19,13 +16,13 @@ import {
 } from '@nestjs/platform-fastify';
 import { Test } from '@nestjs/testing';
 import * as NestBetterAuthPkg from '@thallesp/nestjs-better-auth';
-import { AllowAnonymous } from '@thallesp/nestjs-better-auth';
 import { memoryAdapter, type MemoryDB } from 'better-auth/adapters/memory';
 import { toNodeHandler } from 'better-auth/node';
 import { afterAll, beforeAll, describe, expect, it, mock } from 'bun:test';
 import { BETTER_AUTH_REDIS_CLIENT } from '@/common/auth/better-auth-cache.module';
 import { CryptoService } from '@/common/crypto';
 import { AllExceptionsFilter } from '@/common/filters/all-exceptions.filter';
+import { ResponseEnvelopeInterceptor } from '@/common/interceptors/response-envelope.interceptor';
 import { DRIZZLE } from '@/database/database.constants';
 import type {
   AuthFeature,
@@ -41,14 +38,13 @@ import {
 } from '@/database/seeds/feature-tier.seed';
 import type { AppLoggerService } from '@/logger/logger.service';
 import {
+  AuthFeatureConfigService,
   AuthRuntimeRegistry,
-  BETTER_AUTH_FEATURE_CATALOG_MAP,
   buildDefaultFeatureConfigFromEnv,
   createAuthInstance,
   MAX_ACCESS_TOKEN_TTL_SECONDS,
   resolveClampedAccessTokenTtlSeconds,
   resolveClampedJwtExpirationTime,
-  sanitizeFeatureConfigForPublic,
   SOCIAL_BRIDGE_OAUTH_CLIENT_TOKEN,
   SOCIAL_BRIDGE_REPOSITORY_TOKEN,
   SocialBridgeController,
@@ -85,6 +81,10 @@ import {
   TenantFeatureConfigService,
   type IFeatureTierRepository,
 } from '@/modules/feature-tier';
+import {
+  AuthConfigController,
+  PlatformAuditService,
+} from '@/modules/platform-console';
 import { getDefaultRolePermissions } from '@/modules/rbac';
 import {
   createTenantRewriteUrl,
@@ -169,49 +169,17 @@ function getBetterAuthTestModule(auth: {
     forRoot: (opts: {
       auth: unknown;
       disableGlobalAuthGuard: boolean;
+      disableTrustedOriginsCors?: boolean;
     }) => DynamicModule;
   };
   if (typeof NestBetterAuthPkg.AuthModule === 'function') {
     return pkgAuthModule.forRoot({
       auth,
       disableGlobalAuthGuard: true,
+      disableTrustedOriginsCors: true,
     });
   }
   return AcceptanceBetterAuthModule.forRoot({ auth });
-}
-
-@AllowAnonymous()
-@Controller({ path: 'api/auth-config', version: VERSION_NEUTRAL })
-class AcceptanceAuthConfigController {
-  constructor(
-    private readonly featureResolutionService: FeatureResolutionService,
-  ) {}
-
-  @Get()
-  async getConfig() {
-    const ctx = TenantContextStorage.get();
-    if (ctx.tenantId) {
-      return this.featureResolutionService.getPublicCapabilitiesForTenant(
-        ctx.tenantId,
-      );
-    }
-    const platformFeatures = buildDefaultFeatureConfigFromEnv();
-    platformFeatures.socialGoogle.enabled = false;
-    const capabilities = Object.fromEntries(
-      Object.entries(BETTER_AUTH_FEATURE_CATALOG_MAP).map(([id, entry]) => [
-        id,
-        {
-          available: entry.available,
-          reason: entry.unavailableReason,
-          packageName: entry.packageName,
-        },
-      ]),
-    );
-    return {
-      features: sanitizeFeatureConfigForPublic(platformFeatures),
-      capabilities,
-    };
-  }
 }
 
 function createInMemoryRedis() {
@@ -415,6 +383,7 @@ describe('Multi-Tenant E2E Acceptance Suite (PRD §16 & §19)', () => {
   let _posCitraTenant: Tenant;
 
   let amirOAuthClientId = '';
+  let amirOAuthClientSecret = '';
   let bimaOAuthClientId = '';
 
   let asepAmirCookie = '';
@@ -1103,6 +1072,30 @@ describe('Multi-Tenant E2E Acceptance Suite (PRD §16 & §19)', () => {
       });
     };
 
+    const platformAuthConfigDb = {
+      select: () => ({
+        from: () => ({
+          innerJoin: () =>
+            Promise.resolve([
+              {
+                featureId: 'feat_socialGoogle',
+                featureCode: 'socialGoogle',
+                enabled: false,
+                settings: {},
+                secrets: {},
+                availableSetting: [],
+              },
+            ]),
+        }),
+      }),
+    };
+    const platformFeatureConfigService = new AuthFeatureConfigService(
+      platformAuthConfigDb as never,
+      mockLogger,
+      cryptoService,
+    );
+    await platformFeatureConfigService.loadFromDatabase();
+
     const platformAuth = buildPlatformAuth();
     authRuntimeRegistry.initialize({
       platformInstance: platformAuth,
@@ -1124,7 +1117,7 @@ describe('Multi-Tenant E2E Acceptance Suite (PRD §16 & §19)', () => {
         CustomerPortalController,
         TenantContextController,
         SocialBridgeController,
-        AcceptanceAuthConfigController,
+        AuthConfigController,
       ],
       providers: [
         { provide: ConfigService, useValue: mockConfigService },
@@ -1156,6 +1149,14 @@ describe('Multi-Tenant E2E Acceptance Suite (PRD §16 & §19)', () => {
         },
         { provide: CryptoService, useValue: cryptoService },
         { provide: TenantService, useValue: tenantService },
+        {
+          provide: AuthFeatureConfigService,
+          useValue: platformFeatureConfigService,
+        },
+        {
+          provide: PlatformAuditService,
+          useValue: { recordAudit: mock(() => Promise.resolve()) },
+        },
         BillingService,
         CustomerPortalService,
         PortalTenantUsersService,
@@ -1176,6 +1177,7 @@ describe('Multi-Tenant E2E Acceptance Suite (PRD §16 & §19)', () => {
     app =
       moduleRef.createNestApplication<NestFastifyApplication>(fastifyAdapter);
     app.useGlobalFilters(new AllExceptionsFilter(mockLogger));
+    app.useGlobalInterceptors(new ResponseEnvelopeInterceptor());
     app.useGlobalPipes(
       new ValidationPipe({
         whitelist: true,
@@ -1273,7 +1275,7 @@ describe('Multi-Tenant E2E Acceptance Suite (PRD §16 & §19)', () => {
         payload: { name, slug },
       });
       expect(res.statusCode).toBe(201);
-      const body = res.json() as Tenant;
+      const body = (res.json() as { success: true; data: Tenant }).data;
       expect(body.slug).toBe(slug);
       return body;
     };
@@ -1303,8 +1305,10 @@ describe('Multi-Tenant E2E Acceptance Suite (PRD §16 & §19)', () => {
       payload: { name: 'POS Amir Updated' },
     });
     expect(patchRes.statusCode).toBe(200);
-    expect((patchRes.json() as Tenant).slug).toBe('pos-amir');
-    expect((patchRes.json() as Tenant).name).toBe('POS Amir Updated');
+    const patchedTenant = (patchRes.json() as { success: true; data: Tenant })
+      .data;
+    expect(patchedTenant.slug).toBe('pos-amir');
+    expect(patchedTenant.name).toBe('POS Amir Updated');
 
     // Cross-owner portal access rejected with 403
     const crossOwnerRes = await app.inject({
@@ -1322,20 +1326,26 @@ describe('Multi-Tenant E2E Acceptance Suite (PRD §16 & §19)', () => {
       payload: {
         name: 'POS Amir App',
         type: 'oidc-confidential',
-        redirectUris: ['http://localhost:4000/callback'],
+        redirectUris: ['https://pos-app.example.com/callback'],
         scopes: ['openid', 'profile', 'email'],
         pkceRequired: true,
       },
     });
     expect(amirClientRes.statusCode).toBe(201);
-    const amirClientBody = amirClientRes.json() as {
-      clientId: string;
-      plainClientSecret?: string;
-      tenantId: string;
-    };
+    const amirClientBody = (
+      amirClientRes.json() as {
+        success: true;
+        data: {
+          clientId: string;
+          plainClientSecret?: string;
+          tenantId: string;
+        };
+      }
+    ).data;
     expect(amirClientBody.tenantId).toBe(posAmirTenant.id);
     expect(amirClientBody.plainClientSecret).toBeTruthy();
     amirOAuthClientId = amirClientBody.clientId;
+    amirOAuthClientSecret = amirClientBody.plainClientSecret!;
 
     // GET list does not leak plainClientSecret
     const listClientsRes = await app.inject({
@@ -1344,9 +1354,12 @@ describe('Multi-Tenant E2E Acceptance Suite (PRD §16 & §19)', () => {
       headers: { cookie: amirCookie },
     });
     expect(listClientsRes.statusCode).toBe(200);
-    const listClientsBody = listClientsRes.json() as {
-      items: Array<Record<string, unknown>>;
-    };
+    const listClientsBody = (
+      listClientsRes.json() as {
+        success: true;
+        data: { items: Array<Record<string, unknown>> };
+      }
+    ).data;
     expect(listClientsBody.items).toHaveLength(1);
     expect(listClientsBody.items[0]?.plainClientSecret).toBeUndefined();
 
@@ -1363,7 +1376,12 @@ describe('Multi-Tenant E2E Acceptance Suite (PRD §16 & §19)', () => {
       },
     });
     expect(bimaClientRes.statusCode).toBe(201);
-    bimaOAuthClientId = (bimaClientRes.json() as { clientId: string }).clientId;
+    bimaOAuthClientId = (
+      bimaClientRes.json() as {
+        success: true;
+        data: { clientId: string };
+      }
+    ).data.clientId;
   });
 
   it('should register Asep on pos-amir, create Warung Asep (owner) without Amir as member, and register same email on sekolah-bima as distinct user', async () => {
@@ -1514,8 +1532,11 @@ describe('Multi-Tenant E2E Acceptance Suite (PRD §16 & §19)', () => {
     });
     expect(amirUsersRes.statusCode).toBe(200);
     const amirUsers = (
-      amirUsersRes.json() as { items: Array<{ id: string; tenantId: string }> }
-    ).items;
+      amirUsersRes.json() as {
+        success: true;
+        data: { items: Array<{ id: string; tenantId: string }> };
+      }
+    ).data.items;
     expect(amirUsers.map((u) => u.id).sort()).toEqual(
       [asepAmirUserId, budiAmirUserId].sort(),
     );
@@ -1530,8 +1551,11 @@ describe('Multi-Tenant E2E Acceptance Suite (PRD §16 & §19)', () => {
     });
     expect(amirOrgsRes.statusCode).toBe(200);
     const amirOrgs = (
-      amirOrgsRes.json() as { items: Array<{ id: string; tenantId: string }> }
-    ).items;
+      amirOrgsRes.json() as {
+        success: true;
+        data: { items: Array<{ id: string; tenantId: string }> };
+      }
+    ).data.items;
     expect(amirOrgs.map((o) => o.id)).toEqual([warungAsepOrgId]);
     expect(amirOrgs.some((o) => o.id === sekolahBimaOrgId)).toBe(false);
 
@@ -1599,9 +1623,10 @@ describe('Multi-Tenant E2E Acceptance Suite (PRD §16 & §19)', () => {
       headers: { cookie: amirCookie },
     });
     expect(billingRes.statusCode).toBe(200);
-    expect((billingRes.json() as { tierId: string }).tierId).toBe(
-      'tier_business',
-    );
+    expect(
+      (billingRes.json() as { success: true; data: { tierId: string } }).data
+        .tierId,
+    ).toBe('tier_business');
 
     // Feature outside Free tier (e.g. sso on sekolah-bima Free tier) rejected with 403
     const outOfTierRes = await app.inject({
@@ -1639,12 +1664,15 @@ describe('Multi-Tenant E2E Acceptance Suite (PRD §16 & §19)', () => {
     const featuresText = getFeaturesRes.body;
     expect(featuresText).not.toContain('amir-super-secret-google-key');
     const googleFeature = (
-      getFeaturesRes.json() as Array<{
-        featureCode: string;
-        enabled: boolean;
-        secretsConfigured: Record<string, boolean>;
-      }>
-    ).find((f) => f.featureCode === 'socialGoogle');
+      getFeaturesRes.json() as {
+        success: true;
+        data: Array<{
+          featureCode: string;
+          enabled: boolean;
+          secretsConfigured: Record<string, boolean>;
+        }>;
+      }
+    ).data.find((f) => f.featureCode === 'socialGoogle');
     expect(googleFeature?.enabled).toBe(true);
     expect(googleFeature?.secretsConfigured.clientSecret).toBe(true);
 
@@ -1658,7 +1686,8 @@ describe('Multi-Tenant E2E Acceptance Suite (PRD §16 & §19)', () => {
       cryptoService.decryptSecret(storedConfig!.secrets!.clientSecret!),
     ).toBe('amir-super-secret-google-key');
 
-    // Config isolation: pos-amir has socialGoogle enabled, sekolah-bima & platform remain disabled
+    // Config isolation via real AuthConfigController + ResponseEnvelopeInterceptor:
+    // pos-amir has socialGoogle enabled, sekolah-bima & platform remain disabled
     const [amirCfgRes, bimaCfgRes, platformCfgRes] = await Promise.all([
       app.inject({ method: 'GET', url: '/t/pos-amir/api/auth-config' }),
       app.inject({ method: 'GET', url: '/t/sekolah-bima/api/auth-config' }),
@@ -1667,18 +1696,29 @@ describe('Multi-Tenant E2E Acceptance Suite (PRD §16 & §19)', () => {
     expect(amirCfgRes.statusCode).toBe(200);
     expect(bimaCfgRes.statusCode).toBe(200);
     expect(platformCfgRes.statusCode).toBe(200);
+    const amirCfgEnvelope = amirCfgRes.json() as {
+      success: boolean;
+      data: {
+        features: FeatureConfigMap;
+        capabilities: Record<string, { available: boolean }>;
+      };
+      meta: Record<string, unknown>;
+    };
+    const bimaCfgEnvelope = bimaCfgRes.json() as typeof amirCfgEnvelope;
+    const platformCfgEnvelope = platformCfgRes.json() as typeof amirCfgEnvelope;
+    expect(amirCfgEnvelope.success).toBe(true);
+    expect(amirCfgEnvelope.meta).toBeDefined();
+    expect(amirCfgEnvelope.data.capabilities.socialGoogle.available).toBe(true);
+    expect(amirCfgEnvelope.data.features.socialGoogle.enabled).toBe(true);
     expect(
-      (amirCfgRes.json() as { features: FeatureConfigMap }).features
-        .socialGoogle.enabled,
+      amirCfgEnvelope.data.features.socialGoogle.secretsConfigured
+        ?.clientSecret,
     ).toBe(true);
-    expect(
-      (bimaCfgRes.json() as { features: FeatureConfigMap }).features
-        .socialGoogle.enabled,
-    ).toBe(false);
-    expect(
-      (platformCfgRes.json() as { features: FeatureConfigMap }).features
-        .socialGoogle.enabled,
-    ).toBe(false);
+    expect(amirCfgRes.body).not.toContain('amir-super-secret-google-key');
+    expect(bimaCfgEnvelope.success).toBe(true);
+    expect(bimaCfgEnvelope.data.features.socialGoogle.enabled).toBe(false);
+    expect(platformCfgEnvelope.success).toBe(true);
+    expect(platformCfgEnvelope.data.features.socialGoogle.enabled).toBe(false);
 
     // Anti-open-redirect: external returnTo is rejected with 400
     const openRedirectRes = await app.inject({
@@ -1736,7 +1776,7 @@ describe('Multi-Tenant E2E Acceptance Suite (PRD §16 & §19)', () => {
     const exchangeCode = exchangeRedirect.searchParams.get('code')!;
     expect(exchangeCode).toBeTruthy();
 
-    // Exchange on tenant path sets host-only cookie with Path=/t/pos-amir
+    // Exchange on tenant path sets host-only signed cookie with Path=/t/pos-amir
     const exchangeRes = await app.inject({
       method: 'GET',
       url: `/t/pos-amir/api/social-bridge/exchange?code=${encodeURIComponent(exchangeCode)}`,
@@ -1748,6 +1788,20 @@ describe('Multi-Tenant E2E Acceptance Suite (PRD §16 & §19)', () => {
     expect(exchangeCookies[0]).toContain('ac_t_pos-amir.session_token=');
     expect(exchangeCookies[0]).toContain('Path=/t/pos-amir');
     expect(exchangeCookies[0]).not.toMatch(/;\s*Domain=/i);
+
+    // Follow-up request with the signed cookie from Social Bridge authenticates against Better Auth get-session
+    const bridgeSessionRes = await app.inject({
+      method: 'GET',
+      url: '/t/pos-amir/api/auth/get-session',
+      headers: { cookie: buildCookieHeader(exchangeCookies) },
+    });
+    expect(bridgeSessionRes.statusCode).toBe(200);
+    const bridgeSessionBody = bridgeSessionRes.json() as {
+      user?: { id: string; email: string; tenantId?: string };
+    };
+    expect(bridgeSessionBody?.user?.id).toBeTruthy();
+    expect(bridgeSessionBody?.user?.email).toBe('social-new@pos.id');
+    expect(bridgeSessionBody?.user?.tenantId).toBe(posAmirTenant.id);
 
     // Reusing one-time exchange code fails (GETDEL)
     const replayRes = await app.inject({
@@ -1792,16 +1846,24 @@ describe('Multi-Tenant E2E Acceptance Suite (PRD §16 & §19)', () => {
       }),
     ]);
     expect(
-      (concurrentAmir.json() as { features: FeatureConfigMap }).features
-        .socialGoogle.enabled,
+      (
+        concurrentAmir.json() as {
+          success: true;
+          data: { features: FeatureConfigMap };
+        }
+      ).data.features.socialGoogle.enabled,
     ).toBe(true);
     expect(
-      (concurrentBima.json() as { features: FeatureConfigMap }).features
-        .socialGoogle.enabled,
+      (
+        concurrentBima.json() as {
+          success: true;
+          data: { features: FeatureConfigMap };
+        }
+      ).data.features.socialGoogle.enabled,
     ).toBe(false);
   });
 
-  it('should allow POS to read userId, tenantId, activeOrganizationId, orgRole & orgPermissions from short-TTL token (<= 15m) and real-time /api/context/session', async () => {
+  it('should allow POS to read userId, tenantId, activeOrganizationId, orgRole & orgPermissions from OAuth 2.1 JWT Bearer token (<= 15m) and real-time /api/context/session', async () => {
     // Verify Access Token TTL <= 15 minutes (900s) and clamped helpers
     expect(MAX_ACCESS_TOKEN_TTL_SECONDS).toBeLessThanOrEqual(900);
     expect(resolveClampedAccessTokenTtlSeconds(3600)).toBeLessThanOrEqual(900);
@@ -1815,6 +1877,126 @@ describe('Multi-Tenant E2E Acceptance Suite (PRD §16 & §19)', () => {
       payload: { organizationId: warungAsepOrgId },
     });
     expect(setActiveRes.statusCode).toBe(200);
+
+    // Issue real OAuth 2.1 JWT Access Token via authorization_code + PKCE + consent + token
+    const codeVerifier = crypto.randomBytes(32).toString('base64url');
+    const codeChallenge = crypto
+      .createHash('sha256')
+      .update(codeVerifier)
+      .digest('base64url');
+    const resourceUri = 'http://localhost:2001/api/auth/oauth2/userinfo';
+
+    const authorizeParams = new URLSearchParams({
+      client_id: amirOAuthClientId,
+      redirect_uri: 'https://pos-app.example.com/callback',
+      response_type: 'code',
+      scope: 'openid profile email',
+      code_challenge: codeChallenge,
+      code_challenge_method: 'S256',
+      resource: resourceUri,
+      state: 'oauth-acceptance-state',
+    });
+    const authorizeRes = await app.inject({
+      method: 'GET',
+      url: `/t/pos-amir/api/auth/oauth2/authorize?${authorizeParams.toString()}`,
+      headers: { cookie: asepAmirCookie },
+    });
+    expect(authorizeRes.statusCode).toBe(302);
+    const authorizeLocation = new URL(
+      String(authorizeRes.headers.location),
+      'http://localhost:2001',
+    );
+    let authCode = authorizeLocation.searchParams.get('code');
+    if (!authCode) {
+      expect(authorizeLocation.pathname).toBe('/t/pos-amir/consent');
+      const consentCookies = [
+        asepAmirCookie,
+        buildCookieHeader(extractCookies(authorizeRes.headers['set-cookie'])),
+      ]
+        .filter(Boolean)
+        .join('; ');
+      const consentRes = await app.inject({
+        method: 'POST',
+        url: '/t/pos-amir/api/auth/oauth2/consent',
+        headers: { cookie: consentCookies },
+        payload: {
+          accept: true,
+          oauth_query: authorizeLocation.search.slice(1),
+        },
+      });
+      expect(consentRes.statusCode).toBe(200);
+      const consentBody = consentRes.json() as { url: string };
+      authCode = new URL(consentBody.url).searchParams.get('code');
+    }
+    expect(authCode).toBeTruthy();
+
+    const basicCreds = Buffer.from(
+      `${encodeURIComponent(amirOAuthClientId)}:${encodeURIComponent(amirOAuthClientSecret)}`,
+      'utf8',
+    ).toString('base64');
+    const oauthTokenRes = await app.inject({
+      method: 'POST',
+      url: '/t/pos-amir/api/auth/oauth2/token',
+      headers: {
+        'content-type': 'application/x-www-form-urlencoded',
+        authorization: `Basic ${basicCreds}`,
+      },
+      payload: new URLSearchParams({
+        grant_type: 'authorization_code',
+        code: authCode!,
+        redirect_uri: 'https://pos-app.example.com/callback',
+        code_verifier: codeVerifier,
+        resource: resourceUri,
+      }).toString(),
+    });
+    expect(oauthTokenRes.statusCode).toBe(200);
+    const oauthTokenBody = oauthTokenRes.json() as {
+      access_token: string;
+      expires_in: number;
+    };
+    const oauthJwt = oauthTokenBody.access_token;
+    expect(oauthJwt).toBeTruthy();
+    expect(oauthJwt.split('.').length).toBe(3);
+    expect(oauthTokenBody.expires_in).toBeLessThanOrEqual(900);
+
+    const oauthClaims = decodeJwtPayload(oauthJwt);
+    expect(oauthClaims.tenant_id).toBe(posAmirTenant.id);
+    expect(oauthClaims.active_organization_id).toBe(warungAsepOrgId);
+    expect(oauthClaims.org_role).toBe('owner');
+    expect(Array.isArray(oauthClaims.org_permissions)).toBe(true);
+
+    // Call /t/pos-amir/api/context/session directly with OAuth 2.1 JWT Bearer token
+    const jwtSessionRes = await app.inject({
+      method: 'GET',
+      url: '/t/pos-amir/api/context/session',
+      headers: { authorization: `Bearer ${oauthJwt}` },
+    });
+    expect(jwtSessionRes.statusCode).toBe(200);
+    const jwtSessionBody = (
+      jwtSessionRes.json() as {
+        success: true;
+        data: {
+          userId: string;
+          tenantId: string;
+          activeOrganizationId: string | null;
+          orgRole: string | null;
+          orgPermissions: string[];
+        };
+      }
+    ).data;
+    expect(jwtSessionBody.userId).toBe(asepAmirUserId);
+    expect(jwtSessionBody.tenantId).toBe(posAmirTenant.id);
+    expect(jwtSessionBody.activeOrganizationId).toBe(warungAsepOrgId);
+    expect(jwtSessionBody.orgRole).toBe('owner');
+    expect(jwtSessionBody.orgPermissions.length).toBeGreaterThan(0);
+
+    // Cross-tenant OAuth 2.1 JWT on sekolah-bima rejected (403/401)
+    const crossJwtRes = await app.inject({
+      method: 'GET',
+      url: '/t/sekolah-bima/api/context/session',
+      headers: { authorization: `Bearer ${oauthJwt}` },
+    });
+    expect([401, 403]).toContain(crossJwtRes.statusCode);
 
     // Issue short-TTL JWT from Better Auth jwt plugin on pos-amir
     const jwtRes = await app.inject({
@@ -1855,6 +2037,14 @@ describe('Multi-Tenant E2E Acceptance Suite (PRD §16 & §19)', () => {
     });
     expect(crossTenantKeyRes.statusCode).toBe(403);
 
+    // Nonexistent userId queried via x-api-key returns 404
+    const missingUserRes = await app.inject({
+      method: 'GET',
+      url: '/t/pos-amir/api/context/session?userId=usr_nonexistent',
+      headers: { 'x-api-key': rawApiKey },
+    });
+    expect(missingUserRes.statusCode).toBe(404);
+
     // POS queries real-time /api/context/session using Tenant API Key
     const posSessionRes = await app.inject({
       method: 'GET',
@@ -1862,13 +2052,18 @@ describe('Multi-Tenant E2E Acceptance Suite (PRD §16 & §19)', () => {
       headers: { 'x-api-key': rawApiKey },
     });
     expect(posSessionRes.statusCode).toBe(200);
-    const posSession = posSessionRes.json() as {
-      userId: string;
-      tenantId: string;
-      activeOrganizationId: string | null;
-      orgRole: string | null;
-      orgPermissions: string[];
-    };
+    const posSession = (
+      posSessionRes.json() as {
+        success: true;
+        data: {
+          userId: string;
+          tenantId: string;
+          activeOrganizationId: string | null;
+          orgRole: string | null;
+          orgPermissions: string[];
+        };
+      }
+    ).data;
     expect(posSession.userId).toBe(asepAmirUserId);
     expect(posSession.tenantId).toBe(posAmirTenant.id);
     expect(posSession.activeOrganizationId).toBe(warungAsepOrgId);
@@ -1883,13 +2078,18 @@ describe('Multi-Tenant E2E Acceptance Suite (PRD §16 & §19)', () => {
       headers: { 'x-api-key': rawApiKey },
     });
     expect(budiSessionRes.statusCode).toBe(200);
-    const budiSession = budiSessionRes.json() as {
-      userId: string;
-      tenantId: string;
-      activeOrganizationId: string | null;
-      orgRole: string | null;
-      orgPermissions: string[];
-    };
+    const budiSession = (
+      budiSessionRes.json() as {
+        success: true;
+        data: {
+          userId: string;
+          tenantId: string;
+          activeOrganizationId: string | null;
+          orgRole: string | null;
+          orgPermissions: string[];
+        };
+      }
+    ).data;
     expect(budiSession.userId).toBe(budiAmirUserId);
     expect(budiSession.tenantId).toBe(posAmirTenant.id);
     expect(budiSession.activeOrganizationId).toBe(warungAsepOrgId);

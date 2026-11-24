@@ -8,11 +8,11 @@ import {
   VERSION_NEUTRAL,
 } from '@nestjs/common';
 import { AllowAnonymous } from '@thallesp/nestjs-better-auth';
-import type {
+import {
   ListOrganizationMembersQueryDto,
   ListTenantOrganizationsQueryDto,
-  PosSessionContextDto,
-  TenantContextRequest,
+  type PosSessionContextDto,
+  type TenantContextRequest,
 } from '../dto/tenant-context.dto';
 import { TenantApiOrBearerGuard } from '../guards/tenant-api-or-bearer.guard';
 import { TenantContextService } from '../services/tenant-context.service';

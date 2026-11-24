@@ -93,12 +93,18 @@ export class SocialBridgeController {
       await this.socialBridgeService.exchangeOnTenantHost(code, ctx.tenantId);
 
     const cookieConfig = resolveTenantCookieConfig(ctx);
-    const cookieName = `${cookieConfig.cookiePrefix}.session_token`;
+    const useSecureCookies = this.socialBridgeService.shouldUseSecureCookies();
+    const cookiePrefix = useSecureCookies ? '__Secure-' : '';
+    const cookieName = `${cookiePrefix}${cookieConfig.cookiePrefix}.session_token`;
+    const signedCookieValue =
+      this.socialBridgeService.signSessionCookieValue(sessionToken);
     const isSecure =
-      req.protocol === 'https' || req.headers['x-forwarded-proto'] === 'https';
+      useSecureCookies ||
+      req.protocol === 'https' ||
+      req.headers['x-forwarded-proto'] === 'https';
 
     const cookieParts = [
-      `${cookieName}=${encodeURIComponent(sessionToken)}`,
+      `${cookieName}=${signedCookieValue}`,
       `Path=${cookieConfig.cookiePath}`,
       'HttpOnly',
       'SameSite=Lax',

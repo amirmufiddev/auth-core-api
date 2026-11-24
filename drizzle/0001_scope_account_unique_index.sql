@@ -1,0 +1,3 @@
+DROP INDEX "idx_account_provider_account_unique";--> statement-breakpoint
+CREATE UNIQUE INDEX "uq_account_platform_provider_account" ON "account" USING btree ("provider_id","account_id") WHERE "account"."tenant_id" IS NULL;--> statement-breakpoint
+CREATE UNIQUE INDEX "uq_account_tenant_provider_account" ON "account" USING btree ("tenant_id","provider_id","account_id") WHERE "account"."tenant_id" IS NOT NULL;

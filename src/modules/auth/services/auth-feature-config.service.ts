@@ -3,8 +3,11 @@ import {
   Inject,
   Injectable,
   OnModuleInit,
+  Optional,
 } from '@nestjs/common';
+import { eq } from 'drizzle-orm';
 import { NodePgDatabase } from 'drizzle-orm/node-postgres';
+import { CryptoService, type EncryptedPayload } from '@/common/crypto';
 import { DRIZZLE } from '@/database/database.constants';
 import * as schema from '@/database/schema';
 import { AppLoggerService } from '@/logger/logger.service';
@@ -18,6 +21,15 @@ import {
   normalizeFeatureDependencies,
   sanitizeFeatureConfigForPublic,
 } from '../config/feature-catalog';
+import {
+  collectSecretFieldKeys,
+  decryptPlatformSecrets,
+  isKnownCatalogFeatureCode,
+  persistPlatformFeatureConfigRows,
+  splitIncomingFeaturePatch,
+  stripSecretKeysFromSettings,
+  type PlatformFeatureConfigPatch,
+} from './auth-feature-config.helper';
 
 export type FeatureConfigReloadListener = (
   config: FeatureConfigMap,
@@ -26,11 +38,15 @@ export type FeatureConfigReloadListener = (
 @Injectable()
 export class AuthFeatureConfigService implements OnModuleInit {
   private currentConfig: FeatureConfigMap = buildDefaultFeatureConfigFromEnv();
+  private currentSecrets: Partial<
+    Record<BetterAuthFeatureId, Record<string, EncryptedPayload>>
+  > = {};
   private readonly listeners = new Set<FeatureConfigReloadListener>();
 
   constructor(
     @Inject(DRIZZLE) private readonly db: NodePgDatabase<typeof schema>,
     private readonly logger: AppLoggerService,
+    @Optional() private readonly cryptoService?: CryptoService,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -47,9 +63,24 @@ export class AuthFeatureConfigService implements OnModuleInit {
   async loadFromDatabase(): Promise<FeatureConfigMap> {
     const base = buildDefaultFeatureConfigFromEnv();
     try {
-      const rows = await this.db.select().from(schema.authFeatureConfig);
+      const rows = await this.db
+        .select({
+          featureId: schema.authFeatureConfig.featureId,
+          featureCode: schema.authFeatures.code,
+          enabled: schema.authFeatureConfig.enabled,
+          settings: schema.authFeatureConfig.settings,
+          secrets: schema.authFeatureConfig.secrets,
+          availableSetting: schema.authFeatures.availableSetting,
+        })
+        .from(schema.authFeatureConfig)
+        .innerJoin(
+          schema.authFeatures,
+          eq(schema.authFeatureConfig.featureId, schema.authFeatures.id),
+        );
+
       if (rows.length === 0) {
         this.currentConfig = normalizeFeatureDependencies(base);
+        this.currentSecrets = {};
         return this.currentConfig;
       }
 
@@ -57,15 +88,29 @@ export class AuthFeatureConfigService implements OnModuleInit {
         string,
         { enabled?: boolean; settings?: Record<string, unknown> }
       > = {};
+      const nextSecrets: Partial<
+        Record<BetterAuthFeatureId, Record<string, EncryptedPayload>>
+      > = {};
+
       for (const row of rows) {
-        patch[row.featureId] = {
+        if (!isKnownCatalogFeatureCode(row.featureCode)) continue;
+        const secretKeys = collectSecretFieldKeys(
+          row.featureCode,
+          row.availableSetting,
+        );
+        patch[row.featureCode] = {
           enabled: row.enabled,
-          settings: row.settings ?? {},
+          settings: stripSecretKeysFromSettings(row.settings, secretKeys),
         };
+        if (row.secrets && Object.keys(row.secrets).length > 0) {
+          nextSecrets[row.featureCode] = row.secrets;
+        }
       }
+
       this.currentConfig = normalizeFeatureDependencies(
         mergeFeatureConfig(base, patch),
       );
+      this.currentSecrets = nextSecrets;
       return this.currentConfig;
     } catch (error) {
       this.logger.warn(
@@ -75,12 +120,24 @@ export class AuthFeatureConfigService implements OnModuleInit {
         'AuthFeatureConfigService',
       );
       this.currentConfig = normalizeFeatureDependencies(base);
+      this.currentSecrets = {};
       return this.currentConfig;
     }
   }
 
   getConfig(): FeatureConfigMap {
     return mergeFeatureConfig(this.currentConfig);
+  }
+
+  getDecryptedSecrets(): Partial<
+    Record<BetterAuthFeatureId, Record<string, string>>
+  > {
+    return decryptPlatformSecrets(
+      this.cryptoService,
+      this.currentConfig,
+      this.currentSecrets,
+      this.logger,
+    );
   }
 
   getPublicConfig(): {
@@ -105,7 +162,10 @@ export class AuthFeatureConfigService implements OnModuleInit {
     >;
 
     return {
-      features: sanitizeFeatureConfigForPublic(this.currentConfig),
+      features: sanitizeFeatureConfigForPublic(
+        this.currentConfig,
+        this.currentSecrets,
+      ),
       capabilities,
     };
   }
@@ -128,40 +188,42 @@ export class AuthFeatureConfigService implements OnModuleInit {
   }
 
   async updateConfig(
-    incoming: Partial<
-      Record<string, { enabled?: boolean; settings?: Record<string, unknown> }>
-    >,
+    incoming: Partial<Record<string, PlatformFeatureConfigPatch>>,
     updatedBy?: string,
   ): Promise<FeatureConfigMap> {
+    const cleanIncoming: Record<
+      string,
+      { enabled?: boolean; settings?: Record<string, unknown> }
+    > = {};
+
+    for (const item of BETTER_AUTH_FEATURE_CATALOG) {
+      const split = splitIncomingFeaturePatch(item.id, incoming?.[item.id]);
+      if (split.cleanPatch) {
+        cleanIncoming[item.id] = split.cleanPatch;
+      }
+    }
+
     const merged = normalizeFeatureDependencies(
-      mergeFeatureConfig(this.currentConfig, incoming),
+      mergeFeatureConfig(this.currentConfig, cleanIncoming),
     );
 
+    let nextSecrets: Partial<
+      Record<BetterAuthFeatureId, Record<string, EncryptedPayload>>
+    > = { ...this.currentSecrets };
+
     await this.db.transaction(async (tx) => {
-      for (const item of BETTER_AUTH_FEATURE_CATALOG) {
-        const entry = merged[item.id];
-        await tx
-          .insert(schema.authFeatureConfig)
-          .values({
-            featureId: item.id,
-            enabled: entry.enabled,
-            settings: entry.settings,
-            updatedBy: updatedBy ?? null,
-            updatedAt: new Date(),
-          })
-          .onConflictDoUpdate({
-            target: schema.authFeatureConfig.featureId,
-            set: {
-              enabled: entry.enabled,
-              settings: entry.settings,
-              updatedBy: updatedBy ?? null,
-              updatedAt: new Date(),
-            },
-          });
-      }
+      nextSecrets = await persistPlatformFeatureConfigRows({
+        tx,
+        incoming,
+        merged,
+        currentSecrets: this.currentSecrets,
+        updatedBy,
+        cryptoService: this.cryptoService,
+      });
     });
 
     this.currentConfig = merged;
+    this.currentSecrets = nextSecrets;
 
     for (const listener of this.listeners) {
       await listener(merged);

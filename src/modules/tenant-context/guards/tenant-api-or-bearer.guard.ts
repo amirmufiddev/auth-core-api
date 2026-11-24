@@ -5,6 +5,7 @@ import {
   Injectable,
   UnauthorizedException,
 } from '@nestjs/common';
+import { verifyJwsAccessToken } from 'better-auth/oauth2';
 import { AuthRuntimeRegistry } from '@/modules/auth';
 import { TenantContextStorage } from '@/modules/tenant';
 import type { TenantContextRequest } from '../dto/tenant-context.dto';
@@ -136,6 +137,11 @@ export class TenantApiOrBearerGuard implements CanActivate {
       );
     }
 
+    const bearerToken =
+      authHeader && /^Bearer\s+/i.test(authHeader)
+        ? authHeader.replace(/^Bearer\s+/i, '').trim() || null
+        : null;
+
     let sessionResult: {
       user?: { id: string; tenantId?: string | null };
       session?: {
@@ -158,31 +164,191 @@ export class TenantApiOrBearerGuard implements CanActivate {
           message: 'Sesi tidak valid untuk konteks tenant ini.',
         });
       }
-      throw new UnauthorizedException('Sesi atau Bearer token tidak valid.');
+      if (!bearerToken) {
+        throw new UnauthorizedException('Sesi atau Bearer token tidak valid.');
+      }
     }
 
-    if (!sessionResult?.user?.id) {
-      throw new UnauthorizedException('Sesi atau Bearer token tidak valid.');
+    if (sessionResult?.user?.id) {
+      const userTenantId = sessionResult.user.tenantId;
+      const sessionTenantId = sessionResult.session?.tenantId;
+      if (
+        (userTenantId !== undefined && userTenantId !== tenantCtx.tenantId) ||
+        (sessionTenantId !== undefined &&
+          sessionTenantId !== tenantCtx.tenantId)
+      ) {
+        throw new ForbiddenException({
+          code: 'CROSS_TENANT_SESSION',
+          message:
+            'Sesi milik tenant lain tidak dapat digunakan di tenant ini.',
+        });
+      }
+
+      request.tenantAuthContext = {
+        authType: 'bearer',
+        tenantId: tenantCtx.tenantId,
+        userId: sessionResult.user.id,
+        activeOrganizationId:
+          sessionResult.session?.activeOrganizationId ?? null,
+      };
+      return true;
     }
 
-    const userTenantId = sessionResult.user.tenantId;
-    const sessionTenantId = sessionResult.session?.tenantId;
-    if (
-      (userTenantId !== undefined && userTenantId !== tenantCtx.tenantId) ||
-      (sessionTenantId !== undefined && sessionTenantId !== tenantCtx.tenantId)
-    ) {
-      throw new ForbiddenException({
-        code: 'CROSS_TENANT_SESSION',
-        message: 'Sesi milik tenant lain tidak dapat digunakan di tenant ini.',
+    if (bearerToken) {
+      const jwtClaims = await this.verifyBearerJwt(
+        authInstance,
+        bearerToken,
+        tenantCtx.slug,
+      );
+      if (jwtClaims) {
+        if (jwtClaims.tenant_id !== tenantCtx.tenantId) {
+          throw new ForbiddenException({
+            code: 'CROSS_TENANT_SESSION',
+            message:
+              'Bearer token milik tenant lain tidak dapat digunakan di tenant ini.',
+          });
+        }
+
+        const userId =
+          typeof jwtClaims.sub === 'string' ? jwtClaims.sub.trim() : '';
+        if (!userId) {
+          throw new UnauthorizedException(
+            'Bearer token tidak memiliki subject pengguna.',
+          );
+        }
+
+        await this.tenantContextService.validateJwtUserForTenant(
+          userId,
+          tenantCtx.tenantId,
+        );
+
+        const rawOrgId =
+          jwtClaims.active_organization_id ?? jwtClaims.activeOrganizationId;
+        const activeOrganizationId =
+          typeof rawOrgId === 'string' && rawOrgId.trim()
+            ? rawOrgId.trim()
+            : null;
+
+        request.tenantAuthContext = {
+          authType: 'bearer',
+          tenantId: tenantCtx.tenantId,
+          userId,
+          activeOrganizationId,
+        };
+        return true;
+      }
+    }
+
+    throw new UnauthorizedException('Sesi atau Bearer token tidak valid.');
+  }
+
+  private async verifyBearerJwt(
+    authInstance: unknown,
+    token: string,
+    tenantSlug?: string | null,
+  ): Promise<Record<string, unknown> | null> {
+    if (token.split('.').length !== 3) {
+      return null;
+    }
+
+    const authApi = (authInstance as { api?: Record<string, unknown> })?.api;
+    if (!authApi) return null;
+
+    if (typeof authApi.verifyAccessToken === 'function') {
+      try {
+        const res = (await (
+          authApi.verifyAccessToken as (input: unknown) => Promise<unknown>
+        )({ body: { token } })) as Record<string, unknown> | null;
+        return (
+          (res?.payload as Record<string, unknown> | undefined) ?? res ?? null
+        );
+      } catch (err) {
+        if (
+          err instanceof ForbiddenException ||
+          err instanceof UnauthorizedException
+        ) {
+          throw err;
+        }
+        return null;
+      }
+    }
+
+    if (typeof authApi.getJwks !== 'function') {
+      return null;
+    }
+
+    const { issuers, audiences } = await this.resolveIssuerAndAudience(
+      authInstance,
+      tenantSlug,
+    );
+    if (issuers.length === 0) return null;
+
+    try {
+      const payload = await verifyJwsAccessToken(token, {
+        jwksFetch: async () =>
+          (await (
+            authApi.getJwks as () => Promise<{ keys: unknown[] } | undefined>
+          )()) as Awaited<ReturnType<typeof verifyJwsAccessToken>> extends never
+            ? never
+            : any,
+        jwksCacheKey: authInstance as object,
+        verifyOptions: {
+          issuer: issuers,
+          audience: audiences,
+        },
       });
+      return payload as Record<string, unknown>;
+    } catch (err) {
+      if (
+        err instanceof ForbiddenException ||
+        err instanceof UnauthorizedException
+      ) {
+        throw err;
+      }
+      return null;
+    }
+  }
+
+  private async resolveIssuerAndAudience(
+    authInstance: unknown,
+    tenantSlug?: string | null,
+  ): Promise<{ issuers: string[]; audiences: string[] }> {
+    const instanceObj = authInstance as {
+      options?: { baseURL?: string };
+      $context?: Promise<{ baseURL?: string }>;
+    };
+    const optsBaseUrl = instanceObj.options?.baseURL?.replace(/\/+$/, '');
+    let ctxBaseUrl: string | undefined;
+    try {
+      ctxBaseUrl = (await instanceObj.$context)?.baseURL?.replace(/\/+$/, '');
+    } catch {
+      ctxBaseUrl = undefined;
     }
 
-    request.tenantAuthContext = {
-      authType: 'bearer',
-      tenantId: tenantCtx.tenantId,
-      userId: sessionResult.user.id,
-      activeOrganizationId: sessionResult.session?.activeOrganizationId ?? null,
-    };
-    return true;
+    const issuers = Array.from(
+      new Set([optsBaseUrl, ctxBaseUrl].filter((v): v is string => Boolean(v))),
+    );
+    const audienceSet = new Set<string>(issuers);
+
+    for (const base of issuers) {
+      try {
+        const origin = new URL(base).origin;
+        audienceSet.add(origin);
+        audienceSet.add(`${base}/oauth2/userinfo`);
+        audienceSet.add(`${origin}/api/auth/oauth2/userinfo`);
+        audienceSet.add(`${origin}/mcp`);
+        audienceSet.add(`${origin}/api/context`);
+        if (tenantSlug) {
+          audienceSet.add(`${origin}/t/${tenantSlug}`);
+          audienceSet.add(`${origin}/t/${tenantSlug}/api/auth/oauth2/userinfo`);
+          audienceSet.add(`${origin}/t/${tenantSlug}/mcp`);
+          audienceSet.add(`${origin}/t/${tenantSlug}/api/context`);
+        }
+      } catch {
+        audienceSet.add(`${base}/oauth2/userinfo`);
+      }
+    }
+
+    return { issuers, audiences: Array.from(audienceSet) };
   }
 }

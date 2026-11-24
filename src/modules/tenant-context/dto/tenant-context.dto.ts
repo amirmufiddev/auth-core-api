@@ -1,3 +1,14 @@
+import { ApiPropertyOptional } from '@nestjs/swagger';
+import { Type } from 'class-transformer';
+import {
+  IsInt,
+  IsOptional,
+  IsString,
+  Max,
+  MaxLength,
+  Min,
+} from 'class-validator';
+
 export interface PosSessionContextDto {
   userId: string;
   tenantId: string;
@@ -21,14 +32,30 @@ export interface TenantContextRequest {
   tenantAuthContext?: TenantAuthRequestContext;
 }
 
-export interface ListTenantOrganizationsQueryDto {
+class TenantContextPaginationQueryDto {
+  @ApiPropertyOptional({ minimum: 1, default: 1 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(10000)
   page?: number;
+
+  @ApiPropertyOptional({ minimum: 1, maximum: 100, default: 20 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(100)
   limit?: number;
+
+  @ApiPropertyOptional({ maxLength: 200 })
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
   search?: string;
 }
 
-export interface ListOrganizationMembersQueryDto {
-  page?: number;
-  limit?: number;
-  search?: string;
-}
+export class ListTenantOrganizationsQueryDto extends TenantContextPaginationQueryDto {}
+
+export class ListOrganizationMembersQueryDto extends TenantContextPaginationQueryDto {}

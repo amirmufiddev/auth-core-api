@@ -1,5 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { and, count, desc, eq, ilike, or, type SQL } from 'drizzle-orm';
+import { and, count, desc, eq, ilike, isNull, or, type SQL } from 'drizzle-orm';
 import { NodePgDatabase } from 'drizzle-orm/node-postgres';
 import { DRIZZLE } from '@/database/database.constants';
 import * as schema from '@/database/schema';
@@ -27,7 +27,7 @@ export class PlatformApiKeyRepository implements IPlatformApiKeyRepository {
   async listPaginated(
     query: PaginatedSearchQuery,
   ): Promise<{ items: ApiKeyWithOwnerRow[]; total: number }> {
-    const conditions: SQL[] = [];
+    const conditions: SQL[] = [isNull(schema.apikey.tenantId)];
     const trimmedSearch = query.search?.trim();
     if (trimmedSearch) {
       const pattern = `%${trimmedSearch}%`;
@@ -75,7 +75,7 @@ export class PlatformApiKeyRepository implements IPlatformApiKeyRepository {
     const [found] = await this.db
       .select()
       .from(schema.apikey)
-      .where(eq(schema.apikey.id, id))
+      .where(and(eq(schema.apikey.id, id), isNull(schema.apikey.tenantId)))
       .limit(1);
     return found ?? null;
   }
@@ -84,11 +84,13 @@ export class PlatformApiKeyRepository implements IPlatformApiKeyRepository {
     await this.db
       .update(schema.apikey)
       .set({ enabled, updatedAt: new Date() })
-      .where(eq(schema.apikey.id, id));
+      .where(and(eq(schema.apikey.id, id), isNull(schema.apikey.tenantId)));
   }
 
   async deleteById(id: string): Promise<void> {
-    await this.db.delete(schema.apikey).where(eq(schema.apikey.id, id));
+    await this.db
+      .delete(schema.apikey)
+      .where(and(eq(schema.apikey.id, id), isNull(schema.apikey.tenantId)));
   }
 }
 
@@ -101,7 +103,7 @@ export class PlatformOAuthClientRepository implements IPlatformOAuthClientReposi
   async listPaginated(
     query: PaginatedSearchQuery,
   ): Promise<{ items: OAuthClientRow[]; total: number }> {
-    const conditions: SQL[] = [];
+    const conditions: SQL[] = [isNull(schema.oauthClient.tenantId)];
     const trimmedSearch = query.search?.trim();
     if (trimmedSearch) {
       const pattern = `%${trimmedSearch}%`;
@@ -144,6 +146,7 @@ export class PlatformOAuthClientRepository implements IPlatformOAuthClientReposi
       .insert(schema.oauthClient)
       .values({
         id: input.id,
+        tenantId: null,
         clientId: input.clientId,
         clientSecret: input.clientSecret,
         name: input.name,
@@ -163,7 +166,9 @@ export class PlatformOAuthClientRepository implements IPlatformOAuthClientReposi
   async deleteById(id: string): Promise<void> {
     await this.db
       .delete(schema.oauthClient)
-      .where(eq(schema.oauthClient.id, id));
+      .where(
+        and(eq(schema.oauthClient.id, id), isNull(schema.oauthClient.tenantId)),
+      );
   }
 }
 
@@ -184,6 +189,7 @@ export class PlatformSsoProviderRepository implements IPlatformSsoProviderReposi
         schema.organization,
         eq(schema.ssoProvider.organizationId, schema.organization.id),
       )
+      .where(isNull(schema.ssoProvider.tenantId))
       .orderBy(desc(schema.ssoProvider.createdAt));
   }
 
@@ -192,6 +198,7 @@ export class PlatformSsoProviderRepository implements IPlatformSsoProviderReposi
       .insert(schema.ssoProvider)
       .values({
         id: input.id,
+        tenantId: null,
         providerId: input.providerId,
         issuer: input.issuer,
         domain: input.domain,
@@ -207,6 +214,8 @@ export class PlatformSsoProviderRepository implements IPlatformSsoProviderReposi
   async deleteById(id: string): Promise<void> {
     await this.db
       .delete(schema.ssoProvider)
-      .where(eq(schema.ssoProvider.id, id));
+      .where(
+        and(eq(schema.ssoProvider.id, id), isNull(schema.ssoProvider.tenantId)),
+      );
   }
 }

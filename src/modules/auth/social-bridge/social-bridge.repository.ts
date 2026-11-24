@@ -101,15 +101,42 @@ export class DrizzleSocialBridgeRepository implements ISocialBridgeRepository {
       return null;
     }
 
-    const resolved = await resolver.resolveForTenant(tenantId, null);
-    const secrets = resolved.decryptedSecrets?.[featureId];
-    if (!secrets?.clientId || !secrets?.clientSecret) {
+    const [tenantRow] = await this.db
+      .select({
+        tierId: schema.tenant.tierId,
+        status: schema.tenant.status,
+      })
+      .from(schema.tenant)
+      .where(eq(schema.tenant.id, tenantId))
+      .limit(1);
+
+    if (!tenantRow || tenantRow.status !== 'active') {
+      return null;
+    }
+
+    const resolved = await resolver.resolveForTenant(
+      tenantId,
+      tenantRow.tierId,
+    );
+    const featureConfig = resolved.configMap[featureId];
+    if (!featureConfig?.enabled) {
+      return null;
+    }
+
+    const rawClientId = featureConfig.settings?.clientId;
+    const rawClientSecret =
+      resolved.decryptedSecrets?.[featureId]?.clientSecret;
+    const clientId = typeof rawClientId === 'string' ? rawClientId.trim() : '';
+    const clientSecret =
+      typeof rawClientSecret === 'string' ? rawClientSecret.trim() : '';
+
+    if (!clientId || !clientSecret) {
       return null;
     }
 
     return {
-      clientId: secrets.clientId,
-      clientSecret: secrets.clientSecret,
+      clientId,
+      clientSecret,
     };
   }
 
@@ -136,6 +163,7 @@ export class DrizzleSocialBridgeRepository implements ISocialBridgeRepository {
     tenantId: string,
     email: string,
   ): Promise<{ id: string; email: string; emailVerified: boolean } | null> {
+    const normalizedEmail = email.trim().toLowerCase();
     const [row] = await this.db
       .select({
         id: schema.user.id,
@@ -144,7 +172,10 @@ export class DrizzleSocialBridgeRepository implements ISocialBridgeRepository {
       })
       .from(schema.user)
       .where(
-        and(eq(schema.user.tenantId, tenantId), eq(schema.user.email, email)),
+        and(
+          eq(schema.user.tenantId, tenantId),
+          eq(schema.user.email, normalizedEmail),
+        ),
       )
       .limit(1);
     return row ?? null;
@@ -160,12 +191,13 @@ export class DrizzleSocialBridgeRepository implements ISocialBridgeRepository {
   }): Promise<{ userId: string; email: string }> {
     const userId = crypto.randomUUID();
     const accountId = crypto.randomUUID();
+    const normalizedEmail = input.email.trim().toLowerCase();
 
     await this.db.transaction(async (tx) => {
       await tx.insert(schema.user).values({
         id: userId,
         tenantId: input.tenantId,
-        email: input.email,
+        email: normalizedEmail,
         name: input.name,
         emailVerified: input.emailVerified,
       });
@@ -178,7 +210,7 @@ export class DrizzleSocialBridgeRepository implements ISocialBridgeRepository {
       });
     });
 
-    return { userId, email: input.email };
+    return { userId, email: normalizedEmail };
   }
 
   async linkAccountToUser(input: {

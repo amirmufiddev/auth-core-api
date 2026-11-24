@@ -14,4 +14,5 @@ export interface IOrganizationRoleRepository {
     organizationId: string,
     roleId: string,
   ): Promise<OrganizationRole | undefined>;
+  findOrganizationTenantId?(organizationId: string): Promise<string | null>;
 }

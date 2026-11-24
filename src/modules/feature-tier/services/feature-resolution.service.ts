@@ -264,7 +264,10 @@ export class FeatureResolutionService {
     >;
 
     return {
-      features: sanitizeFeatureConfigForPublic(resolved.configMap),
+      features: sanitizeFeatureConfigForPublic(
+        resolved.configMap,
+        resolved.decryptedSecrets,
+      ),
       capabilities,
     };
   }

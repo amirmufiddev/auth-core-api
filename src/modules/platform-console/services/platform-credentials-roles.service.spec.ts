@@ -119,6 +119,100 @@ describe('PlatformApiKeysService & PlatformOAuthSsoService & PlatformRolesServic
     expect(auditService.recordAudit).toHaveBeenCalledTimes(1);
   });
 
+  it('should throw NotFoundException if ownerEmail does not match a platform user and reject invalid or past expiresAt', async () => {
+    const missingUserRepo = {
+      findPlatformByEmail: mock(() => Promise.resolve(null)),
+    } as unknown as IPlatformUserRepository;
+    const foundUserRepo = {
+      findPlatformByEmail: mock(() =>
+        Promise.resolve({ id: 'usr_owner', email: 'owner@authcore.io' }),
+      ),
+    } as unknown as IPlatformUserRepository;
+
+    const createApiKeyMock = mock(() =>
+      Promise.resolve({
+        id: 'key_2',
+        name: 'Short Key',
+        prefix: 'ak_',
+        start: 'ak_5678',
+        key: 'ak_5678secret',
+        rateLimitMax: 100,
+        rateLimitTimeWindow: 60000,
+        enabled: true,
+        requestCount: 0,
+        expiresAt: null,
+        createdAt: new Date(),
+      }),
+    );
+
+    const makeService = (userRepo: IPlatformUserRepository) =>
+      new PlatformApiKeysService(
+        {} as IPlatformApiKeyRepository,
+        userRepo,
+        { api: { createApiKey: createApiKeyMock } } as any,
+        { assertFeatureEnabled: mock(() => undefined) } as any,
+        { recordAudit: mock(() => Promise.resolve(undefined)) } as any,
+      );
+
+    await expect(
+      makeService(missingUserRepo).createApiKey(
+        {
+          name: 'Orphan Key',
+          prefix: 'ak_',
+          ownerEmail: 'missing@authcore.io',
+          scopes: ['user:read'],
+          rateLimitMax: 100,
+        },
+        actor,
+      ),
+    ).rejects.toThrow(NotFoundException);
+
+    await expect(
+      makeService(foundUserRepo).createApiKey(
+        {
+          name: 'Bad Date Key',
+          prefix: 'ak_',
+          ownerEmail: 'owner@authcore.io',
+          scopes: ['user:read'],
+          rateLimitMax: 100,
+          expiresAt: 'not-a-date',
+        },
+        actor,
+      ),
+    ).rejects.toThrow(BadRequestException);
+
+    await expect(
+      makeService(foundUserRepo).createApiKey(
+        {
+          name: 'Past Date Key',
+          prefix: 'ak_',
+          ownerEmail: 'owner@authcore.io',
+          scopes: ['user:read'],
+          rateLimitMax: 100,
+          expiresAt: '2020-01-01T00:00:00.000Z',
+        },
+        actor,
+      ),
+    ).rejects.toThrow(BadRequestException);
+
+    // Valid future expiresAt under 24h is NOT clamped up to 86400
+    const twoHoursLater = new Date(Date.now() + 7200 * 1000).toISOString();
+    await makeService(foundUserRepo).createApiKey(
+      {
+        name: 'Short TTL Key',
+        prefix: 'ak_',
+        ownerEmail: 'owner@authcore.io',
+        scopes: ['user:read'],
+        rateLimitMax: 100,
+        expiresAt: twoHoursLater,
+      },
+      actor,
+    );
+    const lastCallArg = (createApiKeyMock.mock.calls[0] as any[])[0];
+    expect(lastCallArg.body.expiresIn).toBeLessThan(86400);
+    expect(lastCallArg.body.expiresIn).toBeGreaterThan(7000);
+  });
+
   it('should throw NotFoundException when deleting a missing API key', async () => {
     const apiKeyRepo = {
       findById: mock(() => Promise.resolve(null)),

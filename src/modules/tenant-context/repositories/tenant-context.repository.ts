@@ -30,9 +30,12 @@ export class TenantContextRepository implements ITenantContextRepository {
 
   async findUserTenantId(
     userId: string,
-  ): Promise<{ tenantId: string | null } | null> {
+  ): Promise<{ tenantId: string | null; banned?: boolean | null } | null> {
     const [row] = await this.db
-      .select({ tenantId: schema.user.tenantId })
+      .select({
+        tenantId: schema.user.tenantId,
+        banned: schema.user.banned,
+      })
       .from(schema.user)
       .where(eq(schema.user.id, userId))
       .limit(1);

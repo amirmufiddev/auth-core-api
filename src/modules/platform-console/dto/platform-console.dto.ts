@@ -11,13 +11,10 @@ import {
   MinLength,
 } from 'class-validator';
 
-export class UpdateAuthConfigDto {
-  @IsObject()
-  features!: Record<
-    string,
-    { enabled?: boolean; settings?: Record<string, unknown> }
-  >;
-}
+export {
+  UpdateAuthConfigDto,
+  type UpdateAuthFeaturePatch,
+} from './auth-config.dto';
 
 export class CreateConsoleUserDto {
   @IsString()

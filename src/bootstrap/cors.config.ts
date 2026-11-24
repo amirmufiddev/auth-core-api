@@ -1,5 +1,26 @@
 import { NestFastifyApplication } from '@nestjs/platform-fastify';
 import { ConfigService } from '@nestjs/config';
+import { isAllowedTenantOrigin } from '@/modules/tenant';
+
+function parseCorsOrigins(
+  rawCorsOrigins: string | string[] | undefined,
+): string[] | null {
+  if (Array.isArray(rawCorsOrigins)) {
+    const items = rawCorsOrigins.map((o) => o.trim()).filter(Boolean);
+    return items.includes('*') ? null : items;
+  }
+  if (typeof rawCorsOrigins === 'string') {
+    if (rawCorsOrigins.trim() === '*') {
+      return null;
+    }
+    const items = rawCorsOrigins
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+    return items.includes('*') ? null : items;
+  }
+  return [];
+}
 
 function assertProductionCorsAllowed(
   nodeEnv: string | undefined,
@@ -27,33 +48,47 @@ export function configureCors(
   app: NestFastifyApplication,
   config: ConfigService,
 ): void {
-  const nodeEnv = config.get<string>('app.nodeEnv', { infer: true });
-  const rawCorsOrigins = config.get('app.corsOrigins', { infer: true });
+  const nodeEnv =
+    config.get<string>('app.nodeEnv', { infer: true }) ?? process.env.NODE_ENV;
+  const rawCorsOrigins = config.get<string | string[]>('app.corsOrigins', {
+    infer: true,
+  });
 
   assertProductionCorsAllowed(nodeEnv, rawCorsOrigins);
 
-  // `app.corsOrigins` is registered by `appConfig` as a `string[]` or `string`
-  // (comma-split in src/config/app.config.ts), but we still accept a
-  // bare string for forward-compatibility with config values that come
-  // from a raw env var.
-  let origin: string | string[];
-  if (Array.isArray(rawCorsOrigins)) {
-    origin = rawCorsOrigins;
-  } else if (typeof rawCorsOrigins === 'string') {
-    if (rawCorsOrigins === '*') {
-      origin = '*';
-    } else {
-      origin = rawCorsOrigins
-        .split(',')
-        .map((s) => s.trim())
-        .filter(Boolean);
-    }
-  } else {
-    origin = [];
+  const explicitOrigins = parseCorsOrigins(rawCorsOrigins);
+  if (explicitOrigins === null) {
+    app.enableCors({
+      origin: '*',
+      credentials: true,
+      methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+    });
+    return;
   }
 
+  const tenantBaseDomain =
+    config.get<string>('TENANT_BASE_DOMAIN', { infer: true }) ??
+    process.env.TENANT_BASE_DOMAIN ??
+    'authcore.local';
+
   app.enableCors({
-    origin,
+    origin: (
+      requestOrigin: string | undefined,
+      callback: (err: Error | null, allow?: boolean) => void,
+    ) => {
+      if (!requestOrigin) {
+        callback(null, true);
+        return;
+      }
+      callback(
+        null,
+        isAllowedTenantOrigin(requestOrigin, {
+          explicitOrigins,
+          tenantBaseDomain,
+          nodeEnv,
+        }),
+      );
+    },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
   });

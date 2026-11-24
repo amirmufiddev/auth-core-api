@@ -6,6 +6,7 @@ import {
   type NestFastifyApplication,
 } from '@nestjs/platform-fastify';
 import { Test } from '@nestjs/testing';
+import { memoryAdapter, type MemoryDB } from 'better-auth/adapters/memory';
 import { describe, expect, it, mock } from 'bun:test';
 import { BETTER_AUTH_REDIS_CLIENT } from '@/common/auth/better-auth-cache.module';
 import {
@@ -13,6 +14,7 @@ import {
   registerTenantResolverHook,
   type TenantSummaryCache,
 } from '@/modules/tenant';
+import { createAuthInstance } from '../auth';
 import { SocialBridgeController } from './social-bridge.controller';
 import { FetchSocialBridgeOAuthClient } from './social-bridge.oauth-client';
 import {
@@ -422,6 +424,243 @@ describe('SocialBridgeService & SocialBridgeController', () => {
     expect(cookieStr).toContain('HttpOnly');
     expect(cookieStr).toContain('Path=/');
     expect(cookieStr.toLowerCase()).not.toContain('domain=');
+
+    // Signed cookie MUST contain HMAC signature (<token>.<sig>)
+    const rawCookiePair = cookieStr.split(';')[0]!;
+    const encodedVal = rawCookiePair.split('=').slice(1).join('=');
+    expect(decodeURIComponent(encodedVal)).toMatch(/^[a-f0-9]{64}\..+/);
+
+    await app.close();
+  });
+
+  it('should issue a signed cookie from /t/:slug/api/social-bridge/exchange that Better Auth /t/:slug/api/auth/get-session accepts', async () => {
+    const memoryDb: MemoryDB = {
+      user: [],
+      account: [],
+      session: [],
+      verification: [],
+      tenant: [
+        {
+          id: 'ten_pos',
+          slug: 'pos-amir',
+          name: 'POS Amir',
+          status: 'active',
+          tierId: 'tier_business',
+          configVersion: 1,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+      ],
+    };
+
+    const redis = createInMemoryRedisMock();
+    const configService = createConfigMock({
+      BETTER_AUTH_URL: 'http://localhost:2001',
+      SOCIAL_CALLBACK_BASE_URL: 'http://localhost:2001',
+    });
+    const pathConfigService = {
+      get: mock((key: string) => {
+        if (key === 'app') {
+          return {
+            appName: 'AuthCore',
+            appVersion: '1.0.0',
+            baseUrl: 'http://localhost:2001',
+            corsOrigins: ['http://localhost:3000'],
+            fallbackLanguage: 'id',
+          };
+        }
+        if (key === 'auth') {
+          return {
+            url: 'http://localhost:2001',
+            secret: 'test-secret-min-32-chars-here-for-testing-only',
+            path: '/api/auth',
+            google: { clientId: '', clientSecret: '' },
+            useSecureCookies: false,
+            clientUrl: 'http://localhost:3000',
+            errorURL: 'http://localhost:3000/error',
+            inviteURL: 'http://localhost:3000/invite',
+            invitationExpiresIn: 86400,
+            session: {
+              expiresIn: 60 * 60 * 24 * 7,
+              updateAge: 60 * 60 * 24,
+              cookieCache: { enabled: false, maxAge: 300 },
+            },
+          };
+        }
+        return configService.get(key as never, { infer: true });
+      }),
+    } as unknown as ConfigService;
+
+    const repo: ISocialBridgeRepository = {
+      findTenantCredentials: mock(() =>
+        Promise.resolve({ clientId: 'goog-id', clientSecret: 'goog-secret' }),
+      ),
+      findAccountByProvider: mock(() => Promise.resolve(null)),
+      findUserByTenantEmail: mock(() => Promise.resolve(null)),
+      createUserWithAccount: mock((input) => {
+        const userId = 'usr_social_roundtrip';
+        const now = new Date();
+        memoryDb.user.push({
+          id: userId,
+          tenantId: input.tenantId,
+          email: input.email,
+          name: input.name,
+          emailVerified: input.emailVerified,
+          image: null,
+          banned: false,
+          createdAt: now,
+          updatedAt: now,
+        });
+        memoryDb.account.push({
+          id: 'acc_social_roundtrip',
+          tenantId: input.tenantId,
+          userId,
+          providerId: input.provider,
+          accountId: input.providerAccountId,
+          createdAt: now,
+          updatedAt: now,
+        });
+        return Promise.resolve({ userId, email: input.email });
+      }),
+      linkAccountToUser: mock(() => Promise.resolve()),
+      createSession: mock((input) => {
+        const id = 'sess_social_roundtrip';
+        const now = new Date();
+        memoryDb.session.push({
+          id,
+          tenantId: input.tenantId,
+          userId: input.userId,
+          token: input.token,
+          expiresAt: input.expiresAt,
+          createdAt: now,
+          updatedAt: now,
+          ipAddress: null,
+          userAgent: null,
+        });
+        return Promise.resolve({ id, token: input.token });
+      }),
+    };
+
+    const oauthClient: ISocialBridgeOAuthClient = {
+      exchangeCodeForProfile: mock(() =>
+        Promise.resolve({
+          providerAccountId: 'google-sub-roundtrip',
+          email: 'social.amir@pos.id',
+          name: 'Social Amir',
+          emailVerified: true,
+        }),
+      ),
+    };
+
+    const tenantSummary: TenantSummaryCache = {
+      id: 'ten_pos',
+      slug: 'pos-amir',
+      status: 'active',
+      tierId: 'tier_business',
+      configVersion: 1,
+    };
+
+    const tenantAuth = createAuthInstance({
+      configService: pathConfigService,
+      database: memoryAdapter(memoryDb),
+      tenantContext: {
+        tenantId: tenantSummary.id,
+        slug: tenantSummary.slug,
+        tierId: tenantSummary.tierId,
+        configVersion: tenantSummary.configVersion,
+        source: 'path',
+      },
+      tenantStatus: 'active',
+    });
+
+    const moduleRef = await Test.createTestingModule({
+      controllers: [SocialBridgeController],
+      providers: [
+        SocialBridgeService,
+        { provide: ConfigService, useValue: configService },
+        { provide: BETTER_AUTH_REDIS_CLIENT, useValue: redis },
+        { provide: SOCIAL_BRIDGE_REPOSITORY_TOKEN, useValue: repo },
+        { provide: SOCIAL_BRIDGE_OAUTH_CLIENT_TOKEN, useValue: oauthClient },
+      ],
+    }).compile();
+
+    const app = moduleRef.createNestApplication<NestFastifyApplication>(
+      new FastifyAdapter({
+        rewriteUrl: createTenantRewriteUrl(),
+        trustProxy: true,
+      }),
+    );
+    app.enableVersioning({ type: 0, defaultVersion: VERSION_NEUTRAL });
+    registerTenantResolverHook(
+      app,
+      (slug) => Promise.resolve(slug === 'pos-amir' ? tenantSummary : null),
+      ['localhost'],
+      { tenantBaseDomain: 'localhost' },
+    );
+
+    const fastify = app.getHttpAdapter().getInstance();
+    fastify.all('/api/auth/*', async (req, reply) => {
+      const targetUrl = `http://localhost:2001${req.url}`;
+      const headers = new Headers();
+      for (const [k, v] of Object.entries(req.headers)) {
+        if (typeof v === 'string') headers.set(k, v);
+      }
+      const webReq = new Request(targetUrl, {
+        method: req.method,
+        headers,
+      });
+      const webRes = await tenantAuth.handler(webReq);
+      webRes.headers.forEach((v, k) => reply.header(k, v));
+      return reply.status(webRes.status).send(await webRes.text());
+    });
+
+    await app.init();
+
+    const service = app.get(SocialBridgeService);
+    const state = service.createSignedState({
+      tenantId: 'ten_pos',
+      tenantSlug: 'pos-amir',
+      mode: 'path',
+      provider: 'google',
+      returnTo: '/app',
+    });
+
+    const cbRes = await fastify.inject({
+      method: 'GET',
+      url: `/api/social-bridge/callback/google?code=oauth-rt&state=${encodeURIComponent(state)}`,
+      headers: { host: 'localhost:2001' },
+    });
+    expect(cbRes.statusCode).toBe(302);
+    const exUrl = new URL(cbRes.headers.location as string);
+    expect(exUrl.pathname).toBe('/t/pos-amir/api/social-bridge/exchange');
+
+    const exRes = await fastify.inject({
+      method: 'GET',
+      url: `${exUrl.pathname}${exUrl.search}`,
+      headers: { host: 'localhost:2001' },
+    });
+    expect(exRes.statusCode).toBe(302);
+    const cookieHeader = Array.isArray(exRes.headers['set-cookie'])
+      ? exRes.headers['set-cookie'][0]!
+      : (exRes.headers['set-cookie'] as string);
+    const cookiePair = cookieHeader.split(';')[0]!;
+    expect(cookiePair).toContain('ac_t_pos-amir.session_token=');
+
+    const sessionRes = await fastify.inject({
+      method: 'GET',
+      url: '/t/pos-amir/api/auth/get-session',
+      headers: {
+        host: 'localhost:2001',
+        cookie: cookiePair,
+      },
+    });
+    expect(sessionRes.statusCode).toBe(200);
+    const sessionBody = JSON.parse(sessionRes.body) as {
+      user?: { id: string; email: string; tenantId?: string };
+    };
+    expect(sessionBody?.user?.id).toBe('usr_social_roundtrip');
+    expect(sessionBody?.user?.email).toBe('social.amir@pos.id');
+    expect(sessionBody?.user?.tenantId).toBe('ten_pos');
 
     await app.close();
   });

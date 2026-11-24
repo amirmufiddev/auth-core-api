@@ -252,4 +252,65 @@ describe('auth factory', () => {
       }),
     );
   });
+
+  it('should configure path-mode oauthProvider loginPage & consentPage and dynamic wildcard trustedOrigins', () => {
+    const mockConfig = createMockConfig();
+    const instance = createAuthInstance({
+      configService: mockConfig,
+      tenantBaseDomain: 'authcore.local',
+      tenantContext: {
+        tenantId: 'ten_pos',
+        slug: 'pos-amir',
+        tierId: 'tier_business',
+        configVersion: 1,
+        source: 'path',
+      },
+      featureConfig: {
+        oauthProvider: { enabled: true, settings: {} },
+      } as any,
+    });
+
+    const oauthPlugin = instance.options.plugins?.find(
+      (p: any) => p.id === 'oauth-provider',
+    ) as any;
+    expect(oauthPlugin?.options?.loginPage).toBe('/t/pos-amir/login');
+    expect(oauthPlugin?.options?.consentPage).toBe('/t/pos-amir/consent');
+
+    const trustedFn = instance.options.trustedOrigins as (
+      req?: Request,
+    ) => string[];
+    expect(typeof trustedFn).toBe('function');
+
+    expect(
+      trustedFn(
+        new Request('http://localhost:2001/api/auth/sign-in', {
+          headers: { origin: 'https://pos-amir.authcore.local' },
+        }),
+      ),
+    ).toContain('https://pos-amir.authcore.local');
+
+    expect(
+      trustedFn(
+        new Request('http://localhost:2001/api/auth/sign-in', {
+          headers: { origin: 'http://pos-amir.localhost:3000' },
+        }),
+      ),
+    ).toContain('http://pos-amir.localhost:3000');
+
+    expect(
+      trustedFn(
+        new Request('http://localhost:2001/api/auth/sign-in', {
+          headers: { origin: 'https://auth.authcore.local' },
+        }),
+      ),
+    ).not.toContain('https://auth.authcore.local');
+
+    expect(
+      trustedFn(
+        new Request('http://localhost:2001/api/auth/sign-in', {
+          headers: { origin: 'https://evil.example.com' },
+        }),
+      ),
+    ).not.toContain('https://evil.example.com');
+  });
 });

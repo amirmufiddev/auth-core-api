@@ -19,6 +19,7 @@ export interface TenantRewriteRequest extends IncomingMessage {
 
 export interface TenantResolverHookOptions {
   tenantBaseDomain?: string;
+  trustProxy?: boolean;
 }
 
 type FastifyOnRequestCallback = (
@@ -110,16 +111,26 @@ function normalizeHostname(rawHost: string | undefined | null): string {
   return host.replace(/\.+$/, '');
 }
 
-function resolveRequestHostname(req: FastifyRequest): string {
-  const forwarded = req.headers['x-forwarded-host'];
-  const firstForwarded = Array.isArray(forwarded)
-    ? forwarded[0]
-    : typeof forwarded === 'string'
-      ? forwarded.split(',')[0]
-      : undefined;
+function resolveRequestHostname(
+  req: FastifyRequest,
+  trustProxyOption?: boolean,
+): string {
+  if (trustProxyOption === true) {
+    const forwarded = req.headers['x-forwarded-host'];
+    const firstForwarded = Array.isArray(forwarded)
+      ? forwarded[0]
+      : typeof forwarded === 'string'
+        ? forwarded.split(',')[0]
+        : undefined;
 
-  if (firstForwarded) {
-    const normalized = normalizeHostname(firstForwarded);
+    if (firstForwarded) {
+      const normalized = normalizeHostname(firstForwarded);
+      if (normalized) return normalized;
+    }
+  }
+
+  if (trustProxyOption !== false && typeof req.hostname === 'string') {
+    const normalized = normalizeHostname(req.hostname);
     if (normalized) return normalized;
   }
 
@@ -127,7 +138,7 @@ function resolveRequestHostname(req: FastifyRequest): string {
     ? req.headers.host[0]
     : req.headers.host;
 
-  return normalizeHostname(hostHeader ?? req.hostname);
+  return normalizeHostname(hostHeader);
 }
 
 function resolveHostSlug(
@@ -210,6 +221,7 @@ export function registerTenantResolverHook(
   );
 
   const adapter = app.getHttpAdapter() as unknown as FastifyAdapterHookHost;
+  const trustProxy = options?.trustProxy;
 
   const previousOnRequestHook =
     typeof adapter?.setOnRequestHook === 'function'
@@ -250,7 +262,7 @@ export function registerTenantResolverHook(
     }
 
     const pathSlug = rawReq.__tenantPathSlug ?? null;
-    const hostname = resolveRequestHostname(req);
+    const hostname = resolveRequestHostname(req, trustProxy);
     const hostSlug = resolveHostSlug(hostname, platformHostSet, baseDomain);
 
     if (hostSlug && pathSlug && hostSlug !== pathSlug) {

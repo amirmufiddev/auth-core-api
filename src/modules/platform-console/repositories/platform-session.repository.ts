@@ -7,6 +7,7 @@ import {
   gt,
   gte,
   ilike,
+  isNull,
   lte,
   or,
   sql,
@@ -33,7 +34,10 @@ export class PlatformSessionRepository implements IPlatformSessionRepository {
   async listPaginated(
     query: ListSessionsQuery,
   ): Promise<{ items: SessionWithUserRow[]; total: number }> {
-    const conditions: SQL[] = [];
+    const conditions: SQL[] = [
+      isNull(schema.session.tenantId),
+      isNull(schema.user.tenantId),
+    ];
     const now = new Date();
 
     const trimmedSearch = query.search?.trim();
@@ -105,25 +109,34 @@ export class PlatformSessionRepository implements IPlatformSessionRepository {
     const [found] = await this.db
       .select()
       .from(schema.session)
-      .where(eq(schema.session.id, id))
+      .where(and(eq(schema.session.id, id), isNull(schema.session.tenantId)))
       .limit(1);
     return found ?? null;
   }
 
   async deleteById(id: string): Promise<void> {
-    await this.db.delete(schema.session).where(eq(schema.session.id, id));
+    await this.db
+      .delete(schema.session)
+      .where(and(eq(schema.session.id, id), isNull(schema.session.tenantId)));
   }
 
   async deleteByUserId(userId: string): Promise<void> {
     await this.db
       .delete(schema.session)
-      .where(eq(schema.session.userId, userId));
+      .where(
+        and(eq(schema.session.userId, userId), isNull(schema.session.tenantId)),
+      );
   }
 
   async deleteExpired(): Promise<number> {
     const deleted = await this.db
       .delete(schema.session)
-      .where(lte(schema.session.expiresAt, new Date()))
+      .where(
+        and(
+          isNull(schema.session.tenantId),
+          lte(schema.session.expiresAt, new Date()),
+        ),
+      )
       .returning({ id: schema.session.id });
     return deleted.length;
   }
@@ -132,7 +145,12 @@ export class PlatformSessionRepository implements IPlatformSessionRepository {
     const [row] = await this.db
       .select({ total: count() })
       .from(schema.session)
-      .where(gt(schema.session.expiresAt, new Date()));
+      .where(
+        and(
+          isNull(schema.session.tenantId),
+          gt(schema.session.expiresAt, new Date()),
+        ),
+      );
     return Number(row?.total ?? 0);
   }
 
@@ -144,7 +162,12 @@ export class PlatformSessionRepository implements IPlatformSessionRepository {
         total: count(),
       })
       .from(schema.session)
-      .where(gte(schema.session.createdAt, since))
+      .where(
+        and(
+          isNull(schema.session.tenantId),
+          gte(schema.session.createdAt, since),
+        ),
+      )
       .groupBy(dayExpr);
 
     return rows.map((r) => ({ day: r.day, count: Number(r.total ?? 0) }));

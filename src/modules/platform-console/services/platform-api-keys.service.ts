@@ -115,7 +115,12 @@ export class PlatformApiKeysService {
     this.featureConfigService.assertFeatureEnabled('apiKey');
 
     const owner = await this.userRepo.findPlatformByEmail(input.ownerEmail);
-    const referenceId = owner?.id ?? actor.id;
+    if (!owner) {
+      throw new NotFoundException(
+        `Pengguna platform dengan email '${input.ownerEmail}' tidak ditemukan.`,
+      );
+    }
+    const referenceId = owner.id;
 
     const api = this.authService.api as unknown as BetterAuthApiKeyClient;
     if (typeof api.createApiKey !== 'function') {
@@ -124,12 +129,19 @@ export class PlatformApiKeysService {
       );
     }
 
-    const expiresInSeconds = input.expiresAt
-      ? Math.max(
-          86400,
-          Math.floor((new Date(input.expiresAt).getTime() - Date.now()) / 1000),
-        )
-      : undefined;
+    let expiresInSeconds: number | undefined;
+    if (input.expiresAt) {
+      const expiresAtMs = new Date(input.expiresAt).getTime();
+      if (Number.isNaN(expiresAtMs) || expiresAtMs <= Date.now()) {
+        throw new BadRequestException(
+          'expiresAt harus berupa tanggal ISO valid di masa depan.',
+        );
+      }
+      expiresInSeconds = Math.max(
+        1,
+        Math.floor((expiresAtMs - Date.now()) / 1000),
+      );
+    }
 
     const created = await api.createApiKey({
       body: {

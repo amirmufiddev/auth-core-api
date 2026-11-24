@@ -8,6 +8,98 @@ export function isReservedTenantSlug(slug: string): boolean {
   return RESERVED_SLUG_SET.has(slug);
 }
 
+export interface AllowedOriginOptions {
+  explicitOrigins: readonly string[];
+  tenantBaseDomain?: string;
+  nodeEnv?: string;
+  allowWildcardInNonProd?: boolean;
+}
+
+function normalizeOriginString(raw: string): string {
+  return raw.trim().replace(/\/+$/, '');
+}
+
+export function isAllowedTenantOrigin(
+  rawOrigin: string | undefined | null,
+  options: AllowedOriginOptions,
+): boolean {
+  if (!rawOrigin || typeof rawOrigin !== 'string') {
+    return false;
+  }
+
+  const normalizedInput = normalizeOriginString(rawOrigin);
+  if (!normalizedInput) {
+    return false;
+  }
+
+  const isProduction = options.nodeEnv === 'production';
+  const normalizedExplicit = new Set(
+    options.explicitOrigins.map(normalizeOriginString).filter(Boolean),
+  );
+
+  if (
+    !isProduction &&
+    options.allowWildcardInNonProd &&
+    normalizedExplicit.has('*')
+  ) {
+    return true;
+  }
+
+  if (normalizedExplicit.has(normalizedInput)) {
+    return true;
+  }
+
+  let parsed: URL;
+  try {
+    parsed = new URL(normalizedInput);
+  } catch {
+    return false;
+  }
+
+  if (parsed.origin !== normalizedInput || parsed.username || parsed.password) {
+    return false;
+  }
+
+  const protocolAllowed =
+    parsed.protocol === 'https:' ||
+    (!isProduction && parsed.protocol === 'http:');
+  if (!protocolAllowed) {
+    return false;
+  }
+
+  const hostname = parsed.hostname.toLowerCase().replace(/\.+$/, '');
+  const baseDomain = (options.tenantBaseDomain ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/\.+$/, '');
+
+  const checkSlug = (slug: string): boolean =>
+    Boolean(slug) &&
+    !slug.includes('.') &&
+    TENANT_SLUG_REGEX.test(slug) &&
+    !RESERVED_SLUG_SET.has(slug);
+
+  if (baseDomain && hostname.endsWith(`.${baseDomain}`)) {
+    const slug = hostname.slice(0, -(baseDomain.length + 1));
+    if (checkSlug(slug)) {
+      return true;
+    }
+  }
+
+  if (
+    !isProduction &&
+    parsed.protocol === 'http:' &&
+    hostname.endsWith('.localhost')
+  ) {
+    const slug = hostname.slice(0, -'.localhost'.length);
+    if (checkSlug(slug)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 export function normalizeAndValidateTenantSlug(rawSlug: string): string {
   const slug = (rawSlug ?? '').trim().toLowerCase();
 

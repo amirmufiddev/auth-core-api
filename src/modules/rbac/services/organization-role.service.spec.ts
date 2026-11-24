@@ -3,6 +3,7 @@ import { Test } from '@nestjs/testing';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { AuthService } from '@thallesp/nestjs-better-auth';
 import { BusinessError } from '@/common/errors/business-error';
+import { TenantContextStorage } from '@/modules/tenant/context/tenant-context.storage';
 import { OrganizationRoleService } from './organization-role.service';
 import {
   ORGANIZATION_ROLE_REPOSITORY_TOKEN,
@@ -31,6 +32,7 @@ describe('OrganizationRoleService', () => {
       findByOrganization: mock(() => Promise.resolve([mockRole])),
       findByOrganizationAndRoleName: mock(() => Promise.resolve(mockRole)),
       findById: mock(() => Promise.resolve(mockRole)),
+      findOrganizationTenantId: mock(() => Promise.resolve('ten-1')),
     };
 
     authService = {
@@ -197,6 +199,45 @@ describe('OrganizationRoleService', () => {
       await expect(
         service.assertAssignableRole('org-1', 'manager'),
       ).resolves.toBeUndefined();
+    });
+  });
+
+  describe('tenant ownership check', () => {
+    it('should reject cross-tenant organization access with CROSS_TENANT_ORGANIZATION and allow matching tenant', async () => {
+      (repo.findOrganizationTenantId as any).mockResolvedValue('ten-other');
+
+      let caught: unknown;
+      try {
+        await TenantContextStorage.run(
+          {
+            tenantId: 'ten-1',
+            slug: 'ten-one',
+            tierId: null,
+            configVersion: 1,
+            source: 'subdomain',
+          },
+          () => service.list('org-1'),
+        );
+      } catch (err) {
+        caught = err;
+      }
+
+      expect(caught).toBeInstanceOf(BusinessError);
+      expect((caught as BusinessError).code).toBe('CROSS_TENANT_ORGANIZATION');
+      expect(repo.findByOrganization).not.toHaveBeenCalled();
+
+      (repo.findOrganizationTenantId as any).mockResolvedValue('ten-1');
+      const allowed = await TenantContextStorage.run(
+        {
+          tenantId: 'ten-1',
+          slug: 'ten-one',
+          tierId: null,
+          configVersion: 1,
+          source: 'subdomain',
+        },
+        () => service.list('org-1'),
+      );
+      expect(allowed).toEqual([mockRole]);
     });
   });
 });

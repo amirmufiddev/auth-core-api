@@ -34,6 +34,8 @@ export type {
 export const CATALOG_VERSION_REDIS_KEY = 'authcore:catalog:version';
 export const DEFAULT_AUTH_RUNTIME_LRU_MAX = 200;
 
+export const CATALOG_VERSION_CACHE_TTL_MS = 10_000;
+
 @Injectable()
 export class AuthRuntimeRegistry implements OnModuleInit, OnModuleDestroy {
   private platformInstance: Auth | null = null;
@@ -51,6 +53,7 @@ export class AuthRuntimeRegistry implements OnModuleInit, OnModuleDestroy {
   private platformInvalidationEpoch = 0;
   private maxEntries: number;
   private catalogVersion: number | null = null;
+  private catalogVersionFetchedAt = 0;
   private subscriber: AuthRuntimeRedisSubscriber | null = null;
 
   constructor(
@@ -97,6 +100,8 @@ export class AuthRuntimeRegistry implements OnModuleInit, OnModuleDestroy {
         onCatalog: (catalogVersion) => {
           this.catalogVersion =
             typeof catalogVersion === 'number' ? catalogVersion : null;
+          this.catalogVersionFetchedAt =
+            this.catalogVersion !== null ? Date.now() : 0;
         },
         onPlatform: () => this.invalidatePlatform(),
       },
@@ -118,7 +123,11 @@ export class AuthRuntimeRegistry implements OnModuleInit, OnModuleDestroy {
   }
 
   private async getCatalogVersion(): Promise<number> {
-    if (this.catalogVersion !== null) {
+    const now = Date.now();
+    if (
+      this.catalogVersion !== null &&
+      now - this.catalogVersionFetchedAt < CATALOG_VERSION_CACHE_TTL_MS
+    ) {
       return this.catalogVersion;
     }
     if (this.redisClient?.get) {
@@ -126,12 +135,14 @@ export class AuthRuntimeRegistry implements OnModuleInit, OnModuleDestroy {
         const raw = await this.redisClient.get(CATALOG_VERSION_REDIS_KEY);
         const parsed = raw !== null ? Number(raw) : 0;
         this.catalogVersion = Number.isFinite(parsed) ? parsed : 0;
+        this.catalogVersionFetchedAt = now;
         return this.catalogVersion;
       } catch {
-        // Fallback to 0 when Redis is unavailable
+        // Fallback to cached/0 when Redis is unavailable
       }
     }
-    this.catalogVersion = 0;
+    this.catalogVersion = this.catalogVersion ?? 0;
+    this.catalogVersionFetchedAt = now;
     return this.catalogVersion;
   }
 
@@ -232,6 +243,7 @@ export class AuthRuntimeRegistry implements OnModuleInit, OnModuleDestroy {
       nextVersion = (this.catalogVersion ?? 0) + 1;
     }
     this.catalogVersion = nextVersion;
+    this.catalogVersionFetchedAt = Date.now();
 
     if (this.redisClient?.publish) {
       try {
