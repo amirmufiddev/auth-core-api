@@ -28,12 +28,15 @@ import {
   ListPortalBillingQueryDto,
   ListPortalOAuthClientsQueryDto,
   ListPortalTenantsQueryDto,
+  ListPortalTenantUsersQueryDto,
   PortalBillingSummaryResponseDto,
   PortalOAuthClientResponseDto,
+  PortalTenantUserResponseDto,
   UpdatePortalTenantDto,
 } from '../dto/customer-portal.dto';
 import { TenantOwnerGuard } from '../guards/tenant-owner.guard';
 import { CustomerPortalService } from '../services/customer-portal.service';
+import { PortalTenantUsersService } from '../services/portal-tenant-users.service';
 
 interface PortalSessionContext {
   user?: {
@@ -47,7 +50,10 @@ interface PortalSessionContext {
 @UseGuards(TenantOwnerGuard)
 @Controller({ path: 'api/portal/tenants', version: VERSION_NEUTRAL })
 export class CustomerPortalController {
-  constructor(private readonly portalService: CustomerPortalService) {}
+  constructor(
+    private readonly portalService: CustomerPortalService,
+    private readonly portalTenantUsersService: PortalTenantUsersService,
+  ) {}
 
   private extractUserId(session: PortalSessionContext | null): string {
     const userId = session?.user?.id;
@@ -165,5 +171,21 @@ export class CustomerPortalController {
       page: billing.page,
       pageSize: billing.pageSize,
     };
+  }
+
+  @Get(':tenantId/users')
+  @ApiOperation({
+    summary: 'Daftar user terisolasi milik tenant (WHERE user.tenant_id = :tenantId)',
+  })
+  async listTenantUsers(
+    @Param('tenantId') tenantId: string,
+    @Query() query: ListPortalTenantUsersQueryDto,
+  ): Promise<{
+    items: PortalTenantUserResponseDto[];
+    total: number;
+    page: number;
+    pageSize: number;
+  }> {
+    return this.portalTenantUsersService.listTenantUsers(tenantId, query);
   }
 }

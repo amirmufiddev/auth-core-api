@@ -21,6 +21,7 @@ import type {
 } from '@/database/schema';
 import { BillingRecordResponseDto } from '@/modules/billing';
 import type { PortalOAuthClientType } from '../interfaces/portal-oauth-client-repository.interface';
+import type { PortalTenantUserRow } from '../interfaces/portal-tenant-user-repository.interface';
 
 const TENANT_STATUSES = ['active', 'suspended'] as const;
 const OAUTH_CLIENT_TYPES = [
@@ -300,4 +301,105 @@ export class PortalBillingSummaryResponseDto {
 
   @ApiProperty()
   pageSize!: number;
+}
+
+export class ListPortalTenantUsersQueryDto {
+  @ApiPropertyOptional({ default: 0, minimum: 0 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  page?: number = 0;
+
+  @ApiPropertyOptional({ default: 10, minimum: 1, maximum: 100 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(100)
+  pageSize?: number;
+
+  @ApiPropertyOptional({
+    description: 'Alias untuk pageSize (1-100)',
+    minimum: 1,
+    maximum: 100,
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(100)
+  limit?: number;
+
+  @ApiPropertyOptional({ description: 'Cari berdasarkan nama, email, atau username' })
+  @IsOptional()
+  @IsString()
+  search?: string;
+}
+
+export class PortalTenantUserResponseDto {
+  @ApiProperty()
+  id!: string;
+
+  @ApiProperty({ nullable: true })
+  tenantId!: string | null;
+
+  @ApiProperty()
+  name!: string;
+
+  @ApiProperty()
+  email!: string;
+
+  @ApiProperty()
+  emailVerified!: boolean;
+
+  @ApiProperty({ nullable: true })
+  image!: string | null;
+
+  @ApiProperty({ nullable: true })
+  role!: string | null;
+
+  @ApiProperty()
+  banned!: boolean;
+
+  @ApiProperty({ nullable: true })
+  banReason!: string | null;
+
+  @ApiProperty({ nullable: true })
+  username!: string | null;
+
+  @ApiProperty({ nullable: true })
+  phoneNumber!: string | null;
+
+  @ApiProperty()
+  twoFactorEnabled!: boolean;
+
+  @ApiProperty({ nullable: true })
+  lastLoginMethod!: string | null;
+
+  @ApiProperty()
+  createdAt!: string;
+
+  @ApiProperty()
+  updatedAt!: string;
+
+  static fromEntity(row: PortalTenantUserRow): PortalTenantUserResponseDto {
+    return {
+      id: row.id,
+      tenantId: row.tenantId,
+      name: row.name,
+      email: row.email,
+      emailVerified: row.emailVerified,
+      image: row.image ?? null,
+      role: row.role ?? null,
+      banned: Boolean(row.banned),
+      banReason: row.banReason ?? null,
+      username: row.username ?? null,
+      phoneNumber: row.phoneNumber ?? null,
+      twoFactorEnabled: Boolean(row.twoFactorEnabled),
+      lastLoginMethod: row.lastLoginMethod ?? null,
+      createdAt: row.createdAt.toISOString(),
+      updatedAt: row.updatedAt.toISOString(),
+    };
+  }
 }
