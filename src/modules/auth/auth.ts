@@ -17,6 +17,7 @@ import {
   anonymous,
   bearer,
   captcha,
+  customSession,
   deviceAuthorization,
   emailOTP,
   genericOAuth,
@@ -45,7 +46,7 @@ import { stripe } from '@better-auth/stripe';
 import { i18n } from '@better-auth/i18n';
 import { MemberAcceptedBridge } from '@/modules/member';
 import { drizzle } from 'drizzle-orm/node-postgres';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { canCreateOrganization } from '@/modules/auth/organization-access';
 import translationsId from '@/i18n/id/auth-errors.json';
 import translationsEn from '@/i18n/en/auth-errors.json';
@@ -129,6 +130,201 @@ function getSetting<T extends string | number | boolean>(
   const val = featureConfig?.[id]?.settings?.[key];
   if (val === undefined || val === null || val === '') return fallback;
   return val as T;
+}
+
+export const MIN_ACCESS_TOKEN_TTL_SECONDS = 300;
+export const MAX_ACCESS_TOKEN_TTL_SECONDS = 900;
+
+export function resolveClampedAccessTokenTtlSeconds(
+  rawValue: unknown,
+  fallback = MAX_ACCESS_TOKEN_TTL_SECONDS,
+): number {
+  const parsed = Number(rawValue);
+  const base =
+    Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : fallback;
+  return Math.min(
+    MAX_ACCESS_TOKEN_TTL_SECONDS,
+    Math.max(MIN_ACCESS_TOKEN_TTL_SECONDS, base),
+  );
+}
+
+export function resolveClampedJwtExpirationTime(
+  rawValue: unknown,
+  fallback = '15m',
+): string {
+  const raw =
+    typeof rawValue === 'string' && rawValue.trim()
+      ? rawValue.trim()
+      : typeof rawValue === 'number' && Number.isFinite(rawValue)
+        ? `${Math.floor(rawValue)}s`
+        : fallback;
+
+  const match = /^(\d+)\s*(s|m|h|d)?$/i.exec(raw);
+  if (!match) {
+    return fallback;
+  }
+
+  const amount = Number(match[1]);
+  const unit = (match[2] ?? 's').toLowerCase();
+  const multiplier =
+    unit === 'd' ? 86400 : unit === 'h' ? 3600 : unit === 'm' ? 60 : 1;
+  const seconds = amount * multiplier;
+
+  if (seconds > MAX_ACCESS_TOKEN_TTL_SECONDS) {
+    return `${MAX_ACCESS_TOKEN_TTL_SECONDS}s`;
+  }
+  if (seconds < MIN_ACCESS_TOKEN_TTL_SECONDS) {
+    return `${MIN_ACCESS_TOKEN_TTL_SECONDS}s`;
+  }
+  return raw;
+}
+
+function flattenOrgPermissionJson(
+  rawPermission: string | null | undefined,
+  role: string | null,
+): string[] {
+  let matrix: Record<string, unknown> | null = null;
+  if (rawPermission) {
+    try {
+      const parsed = JSON.parse(rawPermission) as unknown;
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        matrix = parsed as Record<string, unknown>;
+      }
+    } catch {
+      matrix = null;
+    }
+  }
+  if (!matrix && role) {
+    const defaults = getDefaultRolePermissions();
+    if (defaults[role]) {
+      matrix = defaults[role];
+    }
+  }
+  if (!matrix) return [];
+  const codes: string[] = [];
+  for (const [resource, actions] of Object.entries(matrix)) {
+    if (!Array.isArray(actions)) continue;
+    for (const action of actions) {
+      if (typeof action === 'string' && action.trim()) {
+        codes.push(`${resource}:${action}`);
+      }
+    }
+  }
+  return codes;
+}
+
+async function resolveTenantClaimsForUser(
+  authDb: ReturnType<typeof drizzle>,
+  deps: AuthDependencies,
+  userId: string,
+  activeOrganizationId?: string | null,
+): Promise<{
+  tenant_id: string | null;
+  active_organization_id: string | null;
+  org_role: string | null;
+  org_permissions: string[];
+}> {
+  const tenantId = getEffectiveTenantContext(deps.tenantContext).tenantId;
+  if (!tenantId || !userId) {
+    return {
+      tenant_id: tenantId,
+      active_organization_id: null,
+      org_role: null,
+      org_permissions: [],
+    };
+  }
+
+  try {
+    let targetOrgId = activeOrganizationId ?? null;
+    if (!targetOrgId) {
+      const [firstMembership] = await authDb
+        .select({ organizationId: schema.member.organizationId })
+        .from(schema.member)
+        .where(
+          and(
+            eq(schema.member.userId, userId),
+            eq(schema.member.tenantId, tenantId),
+          ),
+        )
+        .limit(1);
+      targetOrgId = firstMembership?.organizationId ?? null;
+    }
+
+    if (!targetOrgId) {
+      return {
+        tenant_id: tenantId,
+        active_organization_id: null,
+        org_role: null,
+        org_permissions: [],
+      };
+    }
+
+    const [orgRow] = await authDb
+      .select({
+        id: schema.organization.id,
+        tenantId: schema.organization.tenantId,
+      })
+      .from(schema.organization)
+      .where(eq(schema.organization.id, targetOrgId))
+      .limit(1);
+
+    if (!orgRow || orgRow.tenantId !== tenantId) {
+      return {
+        tenant_id: tenantId,
+        active_organization_id: null,
+        org_role: null,
+        org_permissions: [],
+      };
+    }
+
+    const [memberRow] = await authDb
+      .select({ role: schema.member.role })
+      .from(schema.member)
+      .where(
+        and(
+          eq(schema.member.organizationId, targetOrgId),
+          eq(schema.member.userId, userId),
+        ),
+      )
+      .limit(1);
+
+    if (!memberRow) {
+      return {
+        tenant_id: tenantId,
+        active_organization_id: null,
+        org_role: null,
+        org_permissions: [],
+      };
+    }
+
+    const [roleRow] = await authDb
+      .select({ permission: schema.organizationRole.permission })
+      .from(schema.organizationRole)
+      .where(
+        and(
+          eq(schema.organizationRole.organizationId, targetOrgId),
+          eq(schema.organizationRole.role, memberRow.role),
+        ),
+      )
+      .limit(1);
+
+    return {
+      tenant_id: tenantId,
+      active_organization_id: targetOrgId,
+      org_role: memberRow.role,
+      org_permissions: flattenOrgPermissionJson(
+        roleRow?.permission,
+        memberRow.role,
+      ),
+    };
+  } catch {
+    return {
+      tenant_id: tenantId,
+      active_organization_id: activeOrganizationId ?? null,
+      org_role: null,
+      org_permissions: [],
+    };
+  }
 }
 
 const buildEmailAndPasswordConfig = (deps: AuthDependencies) => {
@@ -1051,9 +1247,22 @@ const buildPluginsConfig = (
             alg === 'EdDSA' ? { alg: 'EdDSA', crv: 'Ed25519' } : { alg },
         },
         jwt: {
-          expirationTime: String(
+          expirationTime: resolveClampedJwtExpirationTime(
             getSetting(fc, 'jwt', 'expirationTime', '15m'),
           ),
+          definePayload: async ({ user, session }) => {
+            const claims = await resolveTenantClaimsForUser(
+              authDb,
+              deps,
+              user.id,
+              (session as { activeOrganizationId?: string | null } | undefined)
+                ?.activeOrganizationId,
+            );
+            return {
+              ...user,
+              ...claims,
+            };
+          },
         },
       }),
     );
@@ -1073,8 +1282,8 @@ const buildPluginsConfig = (
       oauthProvider({
         loginPage: '/login',
         consentPage: '/consent',
-        accessTokenExpiresIn: Number(
-          getSetting(fc, 'oauthProvider', 'accessTokenExpiresIn', 3600),
+        accessTokenExpiresIn: resolveClampedAccessTokenTtlSeconds(
+          getSetting(fc, 'oauthProvider', 'accessTokenExpiresIn', 900),
         ),
         refreshTokenExpiresIn: Number(
           getSetting(fc, 'oauthProvider', 'refreshTokenExpiresIn', 2592000),
@@ -1087,9 +1296,38 @@ const buildPluginsConfig = (
             false,
           ),
         ),
+        customAccessTokenClaims: async ({ user }) => {
+          if (!user?.id) return {};
+          return resolveTenantClaimsForUser(authDb, deps, user.id);
+        },
+        customIdTokenClaims: async ({ user }) => {
+          if (!user?.id) return {};
+          return resolveTenantClaimsForUser(authDb, deps, user.id);
+        },
+        customUserInfoClaims: async ({ user }) => {
+          if (!user?.id) return {};
+          return resolveTenantClaimsForUser(authDb, deps, user.id);
+        },
       }),
     );
   }
+
+  pluginsList.push(
+    customSession(async ({ user, session }) => {
+      const claims = await resolveTenantClaimsForUser(
+        authDb,
+        deps,
+        user.id,
+        (session as { activeOrganizationId?: string | null } | undefined)
+          ?.activeOrganizationId,
+      );
+      return {
+        user,
+        session,
+        ...claims,
+      };
+    }),
+  );
 
   if (fc && isEnabled(fc, 'deviceAuthorization', false)) {
     pluginsList.push(

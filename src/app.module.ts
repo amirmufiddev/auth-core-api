@@ -24,6 +24,7 @@ import { RbacModule } from './modules/rbac';
 import { UploadModule } from './modules/upload';
 import { MemberModule } from './modules/member';
 import { TenantModule } from './modules/tenant';
+import { TenantContextModule } from './modules/tenant-context';
 import { BillingModule } from './modules/billing';
 import { CustomerPortalModule } from './modules/customer-portal';
 import { CorrelationIdMiddleware } from './common/middleware/correlation-id.middleware';
@@ -75,6 +76,7 @@ import { CryptoModule } from './common/crypto';
     UploadModule,
     MemberModule,
     TenantModule,
+    TenantContextModule,
     BillingModule,
     CustomerPortalModule,
   ],
