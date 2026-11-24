@@ -934,10 +934,15 @@ export function buildCatalogAvailableSettings(
 ): FeatureAvailableSetting[] {
   const settings: FeatureAvailableSetting[] = [];
   const seenKeys = new Set<string>();
+  const explicitSecretKeys = new Set(
+    (FEATURE_SECRET_SETTINGS[item.id] ?? [])
+      .filter((field) => field.type === 'secret')
+      .map((field) => field.key),
+  );
 
   for (const [key, value] of Object.entries(item.defaultSettings)) {
     seenKeys.add(key);
-    const isSecret = SECRET_SETTING_KEY_PATTERN.test(key);
+    const isSecret = explicitSecretKeys.has(key);
     const type = isSecret
       ? 'secret'
       : typeof value === 'boolean'
@@ -1061,9 +1066,15 @@ export function sanitizeFeatureConfigForPublic(
   const sanitized = mergeFeatureConfig(config);
   for (const item of BETTER_AUTH_FEATURE_CATALOG) {
     const secretKeys = new Set(getSecretFieldKeys(item.id));
+    const knownNonSecretKeys = new Set(
+      Object.keys(item.defaultSettings).filter((key) => !secretKeys.has(key)),
+    );
     const settings = { ...sanitized[item.id].settings };
     for (const key of Object.keys(settings)) {
-      if (secretKeys.has(key) || SECRET_SETTING_KEY_PATTERN.test(key)) {
+      if (
+        secretKeys.has(key) ||
+        (!knownNonSecretKeys.has(key) && SECRET_SETTING_KEY_PATTERN.test(key))
+      ) {
         delete settings[key];
       }
     }

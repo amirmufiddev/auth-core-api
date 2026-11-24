@@ -59,6 +59,32 @@ describe('feature-tier.seed', () => {
       expect(dodoSecrets).toContain('apiKey');
       expect(dodoSecrets).toContain('webhookSecret');
     });
+
+    it('should preserve non-secret settings whose names contain password or token keywords', () => {
+      const rows = buildAuthFeatureRows();
+      const byCode = new Map(rows.map((r) => [r.code, r]));
+
+      const findField = (code: Parameters<typeof byCode.get>[0], key: string) =>
+        byCode.get(code)?.availableSetting.find((s) => s.key === key);
+
+      expect(findField('emailAndPassword', 'minPasswordLength')?.type).toBe(
+        'number',
+      );
+      expect(findField('emailAndPassword', 'maxPasswordLength')?.type).toBe(
+        'number',
+      );
+      expect(findField('agentAuth', 'tokenTTL')?.type).toBe('number');
+      expect(findField('oauthProvider', 'accessTokenExpiresIn')?.type).toBe(
+        'number',
+      );
+      expect(findField('oauthProvider', 'refreshTokenExpiresIn')?.type).toBe(
+        'number',
+      );
+      expect(findField('scim', 'storeSCIMToken')?.type).toBe('string');
+      expect(
+        findField('haveIBeenPwned', 'customPasswordCompromisedMessage')?.type,
+      ).toBe('string');
+    });
   });
 
   describe('buildTierFeatureMatrix', () => {

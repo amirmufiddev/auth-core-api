@@ -22,8 +22,6 @@ export interface AuthFeatureSeedRow {
   availableSetting: AuthFeatureAvailableSetting[];
 }
 
-const SECRET_KEY_PATTERN = /secret|token|password|apikey|private/i;
-
 const FEATURE_SECRET_FIELDS: Partial<
   Record<BetterAuthFeatureId, AuthFeatureAvailableSetting[]>
 > = {
@@ -237,10 +235,15 @@ function buildAvailableSettings(
 ): AuthFeatureAvailableSetting[] {
   const settings: AuthFeatureAvailableSetting[] = [];
   const seenKeys = new Set<string>();
+  const explicitSecretKeys = new Set(
+    (FEATURE_SECRET_FIELDS[item.id] ?? [])
+      .filter((field) => field.type === 'secret')
+      .map((field) => field.key),
+  );
 
   for (const [key, value] of Object.entries(item.defaultSettings)) {
     seenKeys.add(key);
-    const isSecret = SECRET_KEY_PATTERN.test(key);
+    const isSecret = explicitSecretKeys.has(key);
     const type = isSecret
       ? 'secret'
       : typeof value === 'boolean'

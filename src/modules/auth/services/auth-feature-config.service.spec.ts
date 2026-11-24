@@ -257,4 +257,28 @@ describe('AuthFeatureConfigService', () => {
       ForbiddenException,
     );
   });
+
+  it('should preserve explicit non-secret password and token settings in public config while hiding secrets', async () => {
+    const dbMock = {
+      select: () => ({
+        from: () => ({
+          innerJoin: () => Promise.resolve([]),
+        }),
+      }),
+    } as any;
+
+    const service = new AuthFeatureConfigService(dbMock, createMockLogger());
+    await service.loadFromDatabase();
+
+    const { features } = service.getPublicConfig();
+    expect(features.emailAndPassword.settings.minPasswordLength).toBe(8);
+    expect(features.emailAndPassword.settings.maxPasswordLength).toBe(128);
+    expect(features.agentAuth.settings.tokenTTL).toBe(1800);
+    expect(features.oauthProvider.settings.accessTokenExpiresIn).toBe(3600);
+    expect(features.oauthProvider.settings.refreshTokenExpiresIn).toBe(2592000);
+    expect(features.scim.settings.storeSCIMToken).toBe('hashed');
+    expect(
+      features.haveIBeenPwned.settings.customPasswordCompromisedMessage,
+    ).toBe('Kata sandi terdeteksi dalam kebocoran data publik.');
+  });
 });
