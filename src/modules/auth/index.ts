@@ -15,3 +15,16 @@ export {
   sanitizeFeatureConfigForPublic,
 } from './config/feature-catalog';
 export { type Auth, type AuthDependencies, createAuthInstance } from './auth';
+export {
+  CROSS_TENANT_OAUTH_CLIENT_ERROR,
+  CROSS_TENANT_SESSION_ERROR,
+  TENANT_SUSPENDED_ERROR,
+  buildTenantIsolationPlugin,
+  createTenantDatabaseHooks,
+  createTenantMultiTenantPlugins,
+  extractOAuthClientIdFromRequest,
+  getEffectiveTenantContext,
+  resolveTenantCookieConfig,
+  type EnabledTenantPlugins,
+  type TenantCookieConfig,
+} from './multi-tenant/tenant-auth-hooks';

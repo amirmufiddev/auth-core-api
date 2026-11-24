@@ -66,6 +66,13 @@ import {
   type FeatureConfigMap,
   buildDefaultFeatureConfigFromEnv,
 } from './config/feature-catalog';
+import { type ResolvedTenantContext } from '@/modules/tenant';
+import {
+  createTenantDatabaseHooks,
+  createTenantMultiTenantPlugins,
+  getEffectiveTenantContext,
+  resolveTenantCookieConfig,
+} from './multi-tenant/tenant-auth-hooks';
 
 export type AgentAuthPluginFactory = (options: {
   providerName: string;
@@ -75,6 +82,7 @@ export type AgentAuthPluginFactory = (options: {
 }) => unknown;
 
 export interface AuditLogInput {
+  tenantId?: string | null;
   action: string;
   category: string;
   severity: 'info' | 'warning' | 'critical';
@@ -92,6 +100,9 @@ export interface AuthDependencies {
   emailService?: EmailService;
   loggerService?: AppLoggerService;
   secondaryStorage?: BetterAuthOptions['secondaryStorage'];
+  database?: BetterAuthOptions['database'];
+  tenantContext?: ResolvedTenantContext | null;
+  tenantStatus?: 'active' | 'suspended';
   eventEmitter?: EventEmitter2;
   betterAuthStatement?: Record<string, readonly string[]>;
   featureConfig?: FeatureConfigMap;
@@ -449,6 +460,32 @@ const buildPluginsConfig = (
   });
 
   const pluginsList: unknown[] = [];
+  const hasApiKey = Boolean(fc && isEnabled(fc, 'apiKey', false));
+  const hasDeviceAuth = Boolean(
+    fc && isEnabled(fc, 'deviceAuthorization', false),
+  );
+  const hasTwoFactor = isEnabled(fc, 'twoFactor', true);
+  const hasPasskey = Boolean(fc && isEnabled(fc, 'passkey', false));
+  const hasOAuthProvider = Boolean(
+    fc &&
+    (isEnabled(fc, 'mcp', false) || isEnabled(fc, 'oauthProvider', false)),
+  );
+
+  // Register multi-tenant & OAuth 2.1 cross-tenant guards BEFORE bearer/oauthProvider
+  // so tenant context, suspended checks, and client ownership run first.
+  pluginsList.push(
+    ...createTenantMultiTenantPlugins({
+      staticTenantContext: deps.tenantContext,
+      tenantStatus: deps.tenantStatus,
+      enabledPlugins: {
+        twoFactor: hasTwoFactor,
+        passkey: hasPasskey,
+        apiKey: hasApiKey,
+        deviceAuthorization: hasDeviceAuth,
+        oauthProvider: hasOAuthProvider,
+      },
+    }),
+  );
 
   if (isEnabled(fc, 'bearer', true)) {
     pluginsList.push(
@@ -1137,13 +1174,19 @@ export const createAuthInstance = (deps: AuthDependencies) => {
     ),
   );
 
+  const cookieConfig = resolveTenantCookieConfig(deps.tenantContext);
+
   const options: BetterAuthOptions = {
     appName,
     basePath: path,
     baseURL: url,
     secret,
-    database: drizzleAdapter(authDb, { provider: 'pg', schema }),
+    database:
+      deps.database ?? drizzleAdapter(authDb, { provider: 'pg', schema }),
     secondaryStorage: deps.secondaryStorage,
+    verification: {
+      storeInDatabase: true,
+    },
     user: {
       additionalFields: {
         phoneNumber: {
@@ -1209,36 +1252,42 @@ export const createAuthInstance = (deps: AuthDependencies) => {
     },
     trustedOrigins: corsOrigins,
     advanced: {
-      cookiePrefix: appName,
+      cookiePrefix: cookieConfig.cookiePrefix,
       useSecureCookies,
+      defaultCookieAttributes: {
+        path: cookieConfig.cookiePath,
+      },
     },
-    databaseHooks: {
-      user: {
-        create: {
-          before: (user: Record<string, unknown>) => {
-            const hasPhone =
-              typeof user.phoneNumber === 'string' &&
-              user.phoneNumber.trim() !== '';
-            if (hasPhone) {
-              assignWhatsappNumber(user, false);
-            }
-            return Promise.resolve({ data: user });
+    databaseHooks: createTenantDatabaseHooks({
+      staticTenantContext: deps.tenantContext,
+      existingDatabaseHooks: {
+        user: {
+          create: {
+            before: (user: Record<string, unknown>) => {
+              const hasPhone =
+                typeof user.phoneNumber === 'string' &&
+                user.phoneNumber.trim() !== '';
+              if (hasPhone) {
+                assignWhatsappNumber(user, false);
+              }
+              return Promise.resolve({ data: user });
+            },
           },
-        },
-        update: {
-          before: (user: Record<string, unknown>) => {
-            if (
-              'phoneNumber' in user &&
-              typeof user.phoneNumber === 'string' &&
-              user.phoneNumber.trim() !== ''
-            ) {
-              assignWhatsappNumber(user, false);
-            }
-            return Promise.resolve({ data: user });
+          update: {
+            before: (user: Record<string, unknown>) => {
+              if (
+                'phoneNumber' in user &&
+                typeof user.phoneNumber === 'string' &&
+                user.phoneNumber.trim() !== ''
+              ) {
+                assignWhatsappNumber(user, false);
+              }
+              return Promise.resolve({ data: user });
+            },
           },
         },
       },
-    },
+    }),
     hooks: {
       after: createAuthMiddleware(async (ctx) => {
         if (!deps.auditLogger || !isEnabled(fc, 'auditLogs', false)) return;
@@ -1266,7 +1315,12 @@ export const createAuthInstance = (deps: AuthDependencies) => {
               }
             | undefined;
           const actor = newSession?.user ?? existingSession?.user;
+          const effectiveTenant = getEffectiveTenantContext(
+            deps.tenantContext,
+            ctx.context,
+          );
           await deps.auditLogger({
+            tenantId: effectiveTenant.tenantId,
             action: `auth.${routePath.replace(/^\/+/, '').replace(/\//g, '.')}`,
             category: routePath.includes('admin')
               ? 'admin'

@@ -16,6 +16,11 @@ import { configureOpenApi } from './bootstrap/openapi.config';
 import { ConfigService } from '@nestjs/config';
 import { AppLoggerService } from './logger/logger.service';
 import { RlsInterceptor } from './shared/database/rls.interceptor';
+import {
+  TenantService,
+  createTenantRewriteUrl,
+  registerTenantResolverHook,
+} from './modules/tenant';
 
 async function bootstrap() {
   const app = await NestFactory.create<NestFastifyApplication>(
@@ -24,6 +29,7 @@ async function bootstrap() {
       logger: false,
       bodyLimit: 10 * 1024 * 1024,
       trustProxy: true,
+      rewriteUrl: createTenantRewriteUrl(),
     }),
     {
       rawBody: true,
@@ -58,6 +64,20 @@ async function bootstrap() {
     }),
   );
   app.useGlobalInterceptors(new RlsInterceptor());
+
+  const tenantService = app.get(TenantService);
+  const platformHostsRaw =
+    config.get<string>('PLATFORM_HOSTS', { infer: true }) ?? env.PLATFORM_HOSTS;
+  const platformHosts = platformHostsRaw
+    .split(',')
+    .map((host) => host.trim())
+    .filter(Boolean);
+  registerTenantResolverHook(
+    app,
+    (slug) => tenantService.resolveSlugSummary(slug),
+    platformHosts,
+  );
+
   await app.listen(env.PORT, '0.0.0.0');
   logger.log(`Application is running on: ${await app.getUrl()}`);
 }

@@ -20,6 +20,7 @@ import {
   BetterAuthCacheModule,
   BETTER_AUTH_SECONDARY_STORAGE,
 } from '@/common/auth/better-auth-cache.module';
+import { TenantContextStorage } from '@/modules/tenant';
 
 const dynamicEsmImport = new Function(
   'specifier',
@@ -84,6 +85,7 @@ export class AuthRuntimeCoreModule {}
 
         const auditLogger = async (entry: AuditLogInput) => {
           await db.insert(schema.auditTrailLogs).values({
+            tenantId: entry.tenantId ?? TenantContextStorage.get().tenantId,
             moduleKey: entry.category,
             actorId: entry.actorId ?? null,
             category: entry.category,

@@ -63,6 +63,7 @@
     "@willsoto/nestjs-prometheus": "6.1.0",
     "argon2": "^0.45.1",
     "better-auth": "^1.7.27",
+    "better-auth-multi-tenant": "^0.7.0",
     "cache-manager": "^7",
     "chargebee": "^3.37.0",
     "class-transformer": "^0.5.1",
