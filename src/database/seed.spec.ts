@@ -170,10 +170,10 @@ describe('Seed Runner Core', () => {
 });
 
 describe('defaultSeeders registry', () => {
-  it('should contain rbac, auth-tiers, and admin seeders in correct order', async () => {
+  it('should contain rbac, auth-tiers, feature-tier, and admin seeders in correct order', async () => {
     const { defaultSeeders } = await import('./seed');
     expect(defaultSeeders).toBeDefined();
     const names = defaultSeeders.map((s) => s.name);
-    expect(names).toEqual(['rbac', 'auth-tiers', 'admin']);
+    expect(names).toEqual(['rbac', 'auth-tiers', 'feature-tier', 'admin']);
   });
 });

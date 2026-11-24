@@ -4,11 +4,13 @@ import { env } from '../config/env.validation';
 import type { Seeder, SeederContext } from './seeds/seeder.interface';
 import { rbacSeeder } from './seeds/rbac.seed';
 import { authTiersSeeder } from './seeds/auth-tiers.seed';
+import { featureTierSeeder } from './seeds/feature-tier.seed';
 import { adminSeeder } from './seeds/admin.seed';
 
 export const defaultSeeders: Seeder[] = [
   rbacSeeder,
   authTiersSeeder,
+  featureTierSeeder,
   adminSeeder,
 ];
 
