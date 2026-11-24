@@ -10,6 +10,15 @@
 
 **Spec:** [2026-11-24-auth-core-multitenant-design.md](../specs/2026-11-24-auth-core-multitenant-design.md)
 
+## Progress (ledger: `auth-core-api/.superpowers/sdd/progress.md`)
+
+| Status | Detail |
+|--------|--------|
+| **Task 1–20** | Selesai (branch `feat/multitenant-iam`) |
+| **E2E** | `test/multitenant-acceptance.e2e-spec.ts` — 6/6 pass |
+| **Verifikasi terakhir (2026-11-24)** | API: `bun test` 669 pass, lint, build OK · Console: typecheck, lint (0 errors), `test:routes`, build OK |
+| **Checkbox step di bawah** | Belum disinkronkan per-step; gunakan ledger + git sebagai sumber kebenaran |
+
 ## Global Constraints
 
 - Arsitektur SOLID per modul (`controllers/`, `services/`, `repositories/`, `interfaces/`, `dto/`, `index.ts`): maksimal 300 baris per service, DIP melalui repository interface + injection token, pagination/filtering wajib di DB (`LIMIT`/`OFFSET` + `WHERE` SQL), dilarang cross-module import ke subfolder internal.

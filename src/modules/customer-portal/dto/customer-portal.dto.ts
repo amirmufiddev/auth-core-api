@@ -471,3 +471,108 @@ export class PortalTenantOrgResponseDto {
     };
   }
 }
+
+export class ListPortalTenantApiKeysQueryDto {
+  @ApiPropertyOptional({ default: 0, minimum: 0 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  page?: number = 0;
+
+  @ApiPropertyOptional({ default: 10, minimum: 1, maximum: 100 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(100)
+  pageSize?: number = 10;
+
+  @ApiPropertyOptional({ description: 'Cari berdasarkan nama, prefix, atau email' })
+  @IsOptional()
+  @IsString()
+  search?: string;
+}
+
+export class CreatePortalTenantApiKeyDto {
+  @ApiProperty({ example: 'POS Backend Production' })
+  @Transform(trimString)
+  @IsString()
+  @MinLength(1)
+  name!: string;
+
+  @ApiPropertyOptional({
+    type: [String],
+    example: ['sessions:verify', 'users:read'],
+  })
+  @IsOptional()
+  @Transform(trimStringArray)
+  @IsArray()
+  @IsString({ each: true })
+  scopes?: string[];
+
+  @ApiPropertyOptional({ default: 100, minimum: 1, maximum: 10_000 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(10_000)
+  rateLimitMax?: number;
+
+  @ApiPropertyOptional({
+    description: 'Tanggal kedaluwarsa ISO-8601 (opsional)',
+    example: '2027-01-01T00:00:00.000Z',
+  })
+  @IsOptional()
+  @IsString()
+  expiresAt?: string;
+}
+
+export class PortalTenantApiKeyResponseDto {
+  @ApiProperty()
+  id!: string;
+
+  @ApiProperty()
+  tenantId!: string;
+
+  @ApiProperty()
+  name!: string;
+
+  @ApiProperty()
+  prefix!: string;
+
+  @ApiProperty()
+  keyPreview!: string;
+
+  @ApiProperty()
+  ownerEmail!: string;
+
+  @ApiProperty({ type: [String] })
+  scopes!: string[];
+
+  @ApiProperty()
+  rateLimitMax!: number;
+
+  @ApiProperty({ description: 'Detik' })
+  rateLimitWindow!: number;
+
+  @ApiProperty()
+  enabled!: boolean;
+
+  @ApiProperty()
+  requestCount!: number;
+
+  @ApiPropertyOptional()
+  lastUsedAt?: string;
+
+  @ApiPropertyOptional()
+  expiresAt?: string;
+
+  @ApiProperty()
+  createdAt!: string;
+
+  @ApiPropertyOptional({
+    description: 'Plaintext API key; hanya dikembalikan sekali saat POST.',
+  })
+  plainApiKey?: string;
+}

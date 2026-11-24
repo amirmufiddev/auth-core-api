@@ -35,8 +35,11 @@ import {
   ListPortalTenantsQueryDto,
   ListPortalTenantOrgsQueryDto,
   ListPortalTenantUsersQueryDto,
+  ListPortalTenantApiKeysQueryDto,
   PortalBillingSummaryResponseDto,
+  PortalTenantApiKeyResponseDto,
   PortalOAuthClientResponseDto,
+  CreatePortalTenantApiKeyDto,
   PortalTenantOrgResponseDto,
   PortalTenantUserResponseDto,
   UpdatePortalTenantDto,
@@ -45,11 +48,13 @@ import { TenantOwnerGuard } from '../guards/tenant-owner.guard';
 import { CustomerPortalService } from '../services/customer-portal.service';
 import { PortalTenantOrgsService } from '../services/portal-tenant-orgs.service';
 import { PortalTenantUsersService } from '../services/portal-tenant-users.service';
+import { PortalTenantApiKeysService } from '../services/portal-tenant-api-keys.service';
 
 interface PortalSessionContext {
   user?: {
     id?: string;
     tenantId?: string | null;
+    email?: string;
   } | null;
 }
 
@@ -63,6 +68,7 @@ export class CustomerPortalController {
     private readonly portalTenantUsersService: PortalTenantUsersService,
     private readonly portalTenantOrgsService: PortalTenantOrgsService,
     private readonly tenantFeatureConfigService: TenantFeatureConfigService,
+    private readonly portalTenantApiKeysService: PortalTenantApiKeysService,
   ) {}
 
   private extractUserId(session: PortalSessionContext | null): string {
@@ -120,6 +126,53 @@ export class CustomerPortalController {
   ): Promise<TenantResponseDto> {
     const updated = await this.portalService.updateTenant(tenantId, body);
     return TenantResponseDto.fromEntity(updated);
+  }
+
+  @Get(':tenantId/api-keys')
+  @ApiOperation({
+    summary:
+      'Daftar API Key terikat tenant (WHERE apikey.tenant_id = :tenantId)',
+  })
+  async listTenantApiKeys(
+    @Param('tenantId') tenantId: string,
+    @Query() query: ListPortalTenantApiKeysQueryDto,
+  ): Promise<{
+    items: PortalTenantApiKeyResponseDto[];
+    total: number;
+    page: number;
+    pageSize: number;
+  }> {
+    return this.portalTenantApiKeysService.listTenantApiKeys(tenantId, query);
+  }
+
+  @Post(':tenantId/api-keys')
+  @ApiOperation({
+    summary:
+      'Buat Tenant API Key (plainApiKey dikembalikan satu kali; memerlukan fitur apiKey aktif di tier tenant)',
+  })
+  async createTenantApiKey(
+    @Param('tenantId') tenantId: string,
+    @Session() session: PortalSessionContext | null,
+    @Body() body: CreatePortalTenantApiKeyDto,
+  ): Promise<PortalTenantApiKeyResponseDto> {
+    const userId = this.extractUserId(session);
+    return this.portalTenantApiKeysService.createTenantApiKey(
+      tenantId,
+      userId,
+      body,
+      session?.user?.email,
+    );
+  }
+
+  @Delete(':tenantId/api-keys/:keyId')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({ summary: 'Cabut / hapus Tenant API Key' })
+  @ApiParam({ name: 'keyId', description: 'Internal apikey.id' })
+  async deleteTenantApiKey(
+    @Param('tenantId') tenantId: string,
+    @Param('keyId') keyId: string,
+  ): Promise<void> {
+    await this.portalTenantApiKeysService.deleteTenantApiKey(tenantId, keyId);
   }
 
   @Get(':tenantId/oauth-clients')
