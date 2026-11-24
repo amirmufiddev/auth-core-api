@@ -7,6 +7,7 @@ export function mapPlatformUserRecord(
 ) {
   return {
     id: u.id,
+    tenantId: u.tenantId ?? null,
     name: u.name,
     email: u.email,
     username: u.username ?? undefined,

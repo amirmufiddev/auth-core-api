@@ -12,11 +12,17 @@ export async function configureRateLimit(
     return;
   }
 
-  const max = config.get<number>('rateLimit.max') ?? 100;
+  const nodeEnv = config.get<string>('app.nodeEnv');
+  const defaultMax = nodeEnv === 'development' ? 10000 : 1000;
+  const max = config.get<number>('rateLimit.max') ?? defaultMax;
   const timeWindow = config.get<string>('rateLimit.timeWindow') ?? '1 minute';
 
   await registerFastifyPlugin(app, fastifyRateLimit, {
     max,
     timeWindow,
+    allowList: (request) => {
+      const path = request.url.split('?')[0];
+      return path === '/health' || path.startsWith('/v1/health');
+    },
   });
 }

@@ -90,6 +90,36 @@ describe('PlatformUserRepository', () => {
     expect(whereCalls[1]).toBeDefined();
   });
 
+  it('should not filter tenantId when scope is all', async () => {
+    const whereCalls: unknown[] = [];
+    const dbMock = {
+      select: mock((projection?: Record<string, unknown>) => ({
+        from: mock(() => ({
+          where: mock((clause: unknown) => {
+            whereCalls.push(clause);
+            if (projection && 'total' in projection) {
+              return Promise.resolve([{ total: 3 }]);
+            }
+            return {
+              orderBy: mock(() => ({
+                limit: mock(() => ({
+                  offset: mock(() => Promise.resolve([])),
+                })),
+              })),
+            };
+          }),
+        })),
+      })),
+    } as any;
+
+    const repo = new PlatformUserRepository(dbMock);
+    await repo.listPaginated({ page: 0, pageSize: 10, scope: 'all' });
+
+    expect(whereCalls).toHaveLength(2);
+    expect(whereCalls[0]).toBeUndefined();
+    expect(whereCalls[1]).toBeUndefined();
+  });
+
   it('should clamp negative page and pageSize before issuing SQL LIMIT and OFFSET', async () => {
     const limitCalls: number[] = [];
     const offsetCalls: number[] = [];

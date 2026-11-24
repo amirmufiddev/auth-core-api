@@ -57,7 +57,10 @@ export class PlatformUserRepository implements IPlatformUserRepository {
   async listPaginated(
     query: ListUsersQuery,
   ): Promise<{ items: User[]; total: number }> {
-    const conditions: SQL[] = [isNull(schema.user.tenantId)];
+    const conditions: SQL[] = [];
+    if (query.scope !== "all") {
+      conditions.push(isNull(schema.user.tenantId));
+    }
 
     const trimmedSearch = query.search?.trim();
     if (trimmedSearch) {
@@ -87,7 +90,8 @@ export class PlatformUserRepository implements IPlatformUserRepository {
       }
     }
 
-    const whereClause = and(...conditions);
+    const whereClause =
+      conditions.length > 0 ? and(...conditions) : undefined;
     const { pageSize, offset } = normalizePagination(
       query.page,
       query.pageSize,

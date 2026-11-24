@@ -26,6 +26,7 @@ describe('configureRateLimit', () => {
         if (key === 'rateLimit.enabled') return undefined;
         if (key === 'rateLimit.max') return undefined;
         if (key === 'rateLimit.timeWindow') return undefined;
+        if (key === 'app.nodeEnv') return 'production';
         return undefined;
       }),
     };
@@ -33,10 +34,34 @@ describe('configureRateLimit', () => {
     await configureRateLimit(mockApp, mockConfigService as ConfigService);
 
     expect(registerSpy).toHaveBeenCalledTimes(1);
-    expect(registerSpy).toHaveBeenCalledWith(mockApp, fastifyRateLimit, {
-      max: 100,
-      timeWindow: '1 minute',
-    });
+    expect(registerSpy).toHaveBeenCalledWith(
+      mockApp,
+      fastifyRateLimit,
+      expect.objectContaining({
+        max: 100,
+        timeWindow: '1 minute',
+      }),
+    );
+  });
+
+  it('should use a higher default max in development', async () => {
+    mockConfigService = {
+      get: jest.fn().mockImplementation((key: string) => {
+        if (key === 'rateLimit.enabled') return undefined;
+        if (key === 'rateLimit.max') return undefined;
+        if (key === 'rateLimit.timeWindow') return undefined;
+        if (key === 'app.nodeEnv') return 'development';
+        return undefined;
+      }),
+    };
+
+    await configureRateLimit(mockApp, mockConfigService as ConfigService);
+
+    expect(registerSpy).toHaveBeenCalledWith(
+      mockApp,
+      fastifyRateLimit,
+      expect.objectContaining({ max: 1000 }),
+    );
   });
 
   it('should register fastifyRateLimit plugin with custom config options', async () => {
@@ -52,10 +77,14 @@ describe('configureRateLimit', () => {
     await configureRateLimit(mockApp, mockConfigService as ConfigService);
 
     expect(registerSpy).toHaveBeenCalledTimes(1);
-    expect(registerSpy).toHaveBeenCalledWith(mockApp, fastifyRateLimit, {
-      max: 50,
-      timeWindow: '10 minutes',
-    });
+    expect(registerSpy).toHaveBeenCalledWith(
+      mockApp,
+      fastifyRateLimit,
+      expect.objectContaining({
+        max: 50,
+        timeWindow: '10 minutes',
+      }),
+    );
   });
 
   it('should skip plugin registration when rateLimit.enabled is false', async () => {

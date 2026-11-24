@@ -14,6 +14,7 @@ export interface ListUsersQuery {
   status?: string;
   sortBy?: string;
   sortDir?: string;
+  scope?: "platform" | "all";
 }
 
 export interface CreatePlatformUserRecord {

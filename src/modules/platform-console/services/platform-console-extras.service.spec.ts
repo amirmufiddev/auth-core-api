@@ -281,6 +281,7 @@ describe('PlatformSessionsService, PlatformAuditService, PlatformMetricsService 
       status: undefined,
       sortBy: undefined,
       sortDir: undefined,
+      scope: 'platform',
     });
 
     await controller.listOrganizations('-1', '500');

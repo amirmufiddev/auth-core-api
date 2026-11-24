@@ -95,7 +95,7 @@ export class PlatformConsoleController {
 
   @Get('users')
   @RequirePlatformPermission('user:read')
-  @ApiOperation({ summary: 'Daftar user platform terpaginasi' })
+  @ApiOperation({ summary: 'Daftar user terpaginasi (platform atau semua tenant)' })
   async listUsers(
     @Query('page') page = '0',
     @Query('pageSize') pageSize = '10',
@@ -104,8 +104,12 @@ export class PlatformConsoleController {
     @Query('status') status?: string,
     @Query('sortBy') sortBy?: string,
     @Query('sortDir') sortDir?: string,
+    @Query('userScope') userScope?: 'platform' | 'all',
+    @Query('scope') legacyScope?: string,
   ) {
     const paging = normalizePagination(Number(page), Number(pageSize));
+    const includeAllTenants =
+      userScope === 'all' || legacyScope === 'all';
     return this.usersService.listUsers({
       page: paging.page,
       pageSize: paging.pageSize,
@@ -114,6 +118,7 @@ export class PlatformConsoleController {
       status,
       sortBy,
       sortDir,
+      scope: includeAllTenants ? 'all' : 'platform',
     });
   }
 
