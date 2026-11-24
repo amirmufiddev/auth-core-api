@@ -8,6 +8,7 @@ import { AuditTrailRepository } from './repositories/audit-trail.repository';
 import { PermissionsController } from './controllers/permissions.controller';
 import { OrganizationRolesController } from './controllers/organization-roles.controller';
 import { OrganizationRoleTemplatesController } from './controllers/organization-role-templates.controller';
+import { TenantOrganizationRolesController } from './controllers/tenant-organization-roles.controller';
 import { RbacPermissionRepository } from './repositories/rbac-permission.repository';
 import { RbacRoleTemplateRepository } from './repositories/rbac-role-template.repository';
 import { OrganizationRoleRepository } from './repositories/organization-role.repository';
@@ -36,6 +37,7 @@ const auditTrailRepositoryProvider = {
     PermissionsController,
     OrganizationRolesController,
     OrganizationRoleTemplatesController,
+    TenantOrganizationRolesController,
   ],
   providers: [
     {
@@ -71,6 +73,7 @@ const auditTrailRepositoryProvider = {
     AUDIT_TRAIL_REPOSITORY_TOKEN,
     RbacPermissionService,
     OrganizationRoleService,
+    OrganizationRoleTemplateService,
     ORGANIZATION_ROLE_REPOSITORY_TOKEN,
     RBAC_PERMISSION_REPOSITORY_TOKEN,
   ],

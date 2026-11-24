@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { Inject, Injectable } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { AuthService } from '@thallesp/nestjs-better-auth';
@@ -9,6 +10,7 @@ import {
   type IOrganizationRoleRepository,
 } from '../interfaces/organization-role-repository.interface';
 import type { UpsertOrganizationRoleDto } from '../dto/organization-role.dto';
+import { RbacPermissionService } from './rbac-permission.service';
 
 const RESERVED_OWNER = 'owner';
 
@@ -27,6 +29,7 @@ export class OrganizationRoleService {
     private readonly roleRepo: IOrganizationRoleRepository,
     private readonly authService: AuthService,
     private readonly eventEmitter: EventEmitter2,
+    private readonly permissionService: RbacPermissionService,
   ) {}
 
   async list(organizationId: string): Promise<OrganizationRole[]> {
@@ -140,6 +143,117 @@ export class OrganizationRoleService {
     this.eventEmitter.emit('rbac.cache.invalidate', { orgId: organizationId });
   }
 
+  async listForTenant(
+    tenantId: string,
+    organizationId: string,
+  ): Promise<OrganizationRole[]> {
+    await this.requireOrganizationInTenant(tenantId, organizationId);
+    return this.roleRepo.findByOrganization(organizationId);
+  }
+
+  async createForTenant(
+    tenantId: string,
+    organizationId: string,
+    dto: UpsertOrganizationRoleDto,
+  ): Promise<OrganizationRole> {
+    await this.requireOrganizationInTenant(tenantId, organizationId);
+    this.assertRoleName(dto.role);
+    const role = dto.role.trim().toLowerCase();
+    const existing = await this.roleRepo.findByOrganizationAndRoleName(
+      organizationId,
+      role,
+    );
+    if (existing) {
+      throw BusinessError.conflict(
+        `Role '${role}' sudah ada di organisasi ini`,
+        'ORG_ROLE_EXISTS',
+      );
+    }
+
+    const normalized = await this.permissionService.normalizePermission(
+      tenantId,
+      dto.permission,
+      dto.permissionScopes,
+    );
+    const created = await this.roleRepo.insert({
+      id: randomUUID(),
+      tenantId,
+      organizationId,
+      role,
+      permission: JSON.stringify(normalized.permission),
+      permissionScopes: JSON.stringify(normalized.permissionScopes),
+    });
+    this.eventEmitter.emit('rbac.cache.invalidate', { orgId: organizationId });
+    return created;
+  }
+
+  async updateForTenant(
+    tenantId: string,
+    organizationId: string,
+    roleId: string,
+    dto: UpsertOrganizationRoleDto,
+  ): Promise<OrganizationRole> {
+    await this.requireOrganizationInTenant(tenantId, organizationId);
+    const existing = await this.getById(organizationId, roleId);
+    if (existing.role === RESERVED_OWNER) {
+      throw BusinessError.forbidden(
+        'Role owner tidak dapat diubah',
+        'OWNER_ROLE_IMMUTABLE',
+      );
+    }
+
+    const role = dto.role.trim().toLowerCase();
+    if (role !== existing.role) {
+      this.assertRoleName(role);
+      const duplicate = await this.roleRepo.findByOrganizationAndRoleName(
+        organizationId,
+        role,
+      );
+      if (duplicate && duplicate.id !== existing.id) {
+        throw BusinessError.conflict(
+          `Role '${role}' sudah ada di organisasi ini`,
+          'ORG_ROLE_EXISTS',
+        );
+      }
+    }
+
+    const normalized = await this.permissionService.normalizePermission(
+      tenantId,
+      dto.permission,
+      dto.permissionScopes,
+    );
+    const updated = await this.roleRepo.updateById(organizationId, roleId, {
+      role,
+      permission: JSON.stringify(normalized.permission),
+      permissionScopes: JSON.stringify(normalized.permissionScopes),
+    });
+    if (!updated) {
+      throw BusinessError.notFound('Organization role', roleId);
+    }
+    this.eventEmitter.emit('rbac.cache.invalidate', { orgId: organizationId });
+    return updated;
+  }
+
+  async removeForTenant(
+    tenantId: string,
+    organizationId: string,
+    roleId: string,
+  ): Promise<void> {
+    await this.requireOrganizationInTenant(tenantId, organizationId);
+    const existing = await this.getById(organizationId, roleId);
+    if (existing.role === RESERVED_OWNER) {
+      throw BusinessError.forbidden(
+        'Role owner tidak dapat dihapus',
+        'OWNER_ROLE_IMMUTABLE',
+      );
+    }
+    const deleted = await this.roleRepo.deleteById(organizationId, roleId);
+    if (!deleted) {
+      throw BusinessError.notFound('Organization role', roleId);
+    }
+    this.eventEmitter.emit('rbac.cache.invalidate', { orgId: organizationId });
+  }
+
   async assertAssignableRole(
     organizationId: string,
     roleName: string,
@@ -185,6 +299,29 @@ export class OrganizationRoleService {
     if (orgTenantId !== ctx.tenantId) {
       throw BusinessError.forbidden(
         'Organisasi tidak termasuk dalam tenant yang aktif pada request ini.',
+        'CROSS_TENANT_ORGANIZATION',
+      );
+    }
+  }
+
+  private async requireOrganizationInTenant(
+    tenantId: string,
+    organizationId: string,
+  ): Promise<void> {
+    await this.assertOrganizationTenantScope(organizationId);
+    if (!this.roleRepo.findOrganizationTenantId) {
+      throw BusinessError.internal(
+        'Repository role organisasi tidak dapat memeriksa tenant.',
+      );
+    }
+    const orgTenantId =
+      await this.roleRepo.findOrganizationTenantId(organizationId);
+    if (!orgTenantId) {
+      throw BusinessError.notFound('Organization', organizationId);
+    }
+    if (orgTenantId !== tenantId) {
+      throw BusinessError.forbidden(
+        'Organisasi tidak termasuk dalam tenant ini.',
         'CROSS_TENANT_ORGANIZATION',
       );
     }

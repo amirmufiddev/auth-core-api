@@ -20,6 +20,7 @@ import { UpsertOrganizationRoleTemplateDto } from '../dto/organization-role-temp
 import { TenantUserGuard } from '../guards/tenant-user.guard';
 import type { TenantUserRequest } from '../guards/tenant-user.guard';
 import { OrganizationRoleTemplateService } from '../services/organization-role-template.service';
+import { toOrganizationRoleTemplateResponse } from '../utils/organization-role-template.mapper';
 
 @ApiTags('RBAC')
 @ApiBearerAuth()
@@ -34,30 +35,40 @@ export class OrganizationRoleTemplatesController {
   @ApiOperation({
     summary: 'Daftar template role milik tenant',
   })
-  list(@Req() req: TenantUserRequest) {
-    return this.templateService.list(req.tenantUser!.tenantId);
+  async list(@Req() req: TenantUserRequest) {
+    const rows = await this.templateService.list(req.tenantUser!.tenantId);
+    return rows.map(toOrganizationRoleTemplateResponse);
   }
 
   @Post()
   @ApiOperation({ summary: 'Tambah template role tenant' })
-  create(
+  async create(
     @Req() req: TenantUserRequest,
     @Body() body: UpsertOrganizationRoleTemplateDto,
   ) {
-    return this.templateService.create(req.tenantUser!.tenantId, body);
+    const created = await this.templateService.create(
+      req.tenantUser!.tenantId,
+      body,
+    );
+    return toOrganizationRoleTemplateResponse(created);
   }
 
   @Patch(':roleName')
   @ApiOperation({ summary: 'Ubah template role tenant' })
-  update(
+  async update(
     @Req() req: TenantUserRequest,
     @Param('roleName') roleName: string,
     @Body() body: UpsertOrganizationRoleTemplateDto,
   ) {
-    return this.templateService.update(req.tenantUser!.tenantId, roleName, {
-      ...body,
+    const updated = await this.templateService.update(
+      req.tenantUser!.tenantId,
       roleName,
-    });
+      {
+        ...body,
+        roleName,
+      },
+    );
+    return toOrganizationRoleTemplateResponse(updated);
   }
 
   @Delete(':roleName')

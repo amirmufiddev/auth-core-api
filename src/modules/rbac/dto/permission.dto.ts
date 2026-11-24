@@ -23,6 +23,9 @@ export class ResourcePermissionDto {
 }
 
 export class PermissionCodeDto {
+  @ApiProperty({ example: 'permission-id' })
+  id: string;
+
   @ApiProperty({ example: 'transaction:read' })
   code: string;
 

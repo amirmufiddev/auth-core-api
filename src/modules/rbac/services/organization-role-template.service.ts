@@ -2,6 +2,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import { BusinessError } from '@/common/errors/business-error';
 import type { OrganizationRoleTemplate } from '@/database/schema';
 import { RbacRoleTemplateRepository } from '../repositories/rbac-role-template.repository';
+import { RbacPermissionService } from './rbac-permission.service';
 
 const ROLE_NAME_PATTERN = /^[a-z][a-z0-9_-]*$/;
 
@@ -16,6 +17,7 @@ export class OrganizationRoleTemplateService {
   constructor(
     @Inject(RbacRoleTemplateRepository)
     private readonly templateRepo: RbacRoleTemplateRepository,
+    private readonly permissionService: RbacPermissionService,
   ) {}
 
   list(tenantId: string): Promise<OrganizationRoleTemplate[]> {
@@ -38,11 +40,17 @@ export class OrganizationRoleTemplateService {
       );
     }
 
+    const normalized = await this.permissionService.normalizePermission(
+      tenantId,
+      input.permission,
+      input.permissionScopes,
+    );
+
     return this.templateRepo.create({
       tenantId,
       roleName: input.roleName,
-      permission: JSON.stringify(input.permission),
-      permissionScopes: JSON.stringify(input.permissionScopes ?? {}),
+      permission: JSON.stringify(normalized.permission),
+      permissionScopes: JSON.stringify(normalized.permissionScopes),
     });
   }
 
@@ -52,9 +60,14 @@ export class OrganizationRoleTemplateService {
     input: UpsertOrganizationRoleTemplateInput,
   ): Promise<OrganizationRoleTemplate> {
     this.assertRoleName(roleName);
+    const normalized = await this.permissionService.normalizePermission(
+      tenantId,
+      input.permission,
+      input.permissionScopes,
+    );
     const updated = await this.templateRepo.update(tenantId, roleName, {
-      permission: JSON.stringify(input.permission),
-      permissionScopes: JSON.stringify(input.permissionScopes ?? {}),
+      permission: JSON.stringify(normalized.permission),
+      permissionScopes: JSON.stringify(normalized.permissionScopes),
     });
     if (!updated) {
       throw BusinessError.notFound('Role template', roleName);

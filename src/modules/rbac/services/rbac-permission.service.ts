@@ -91,6 +91,49 @@ export class RbacPermissionService {
     return updated;
   }
 
+  async normalizePermission(
+    tenantId: string,
+    permission: Record<string, string[]>,
+    scopes?: Record<string, string>,
+  ): Promise<{
+    permission: Record<string, string[]>;
+    permissionScopes: Record<string, string>;
+  }> {
+    const rows = await this.permissionRepo.findAllActiveByTenant(tenantId);
+    const allowed = new Set(
+      rows.map((row) => `${row.resource}:${row.action}`),
+    );
+    const normalized: Record<string, string[]> = {};
+    const permissionScopes: Record<string, string> = {};
+
+    for (const [resource, actions] of Object.entries(permission ?? {})) {
+      if (!Array.isArray(actions)) {
+        throw BusinessError.unprocessable(
+          'Format permission tidak valid',
+          'INVALID_PERMISSION',
+        );
+      }
+      const unique = [
+        ...new Set(actions.map((action) => String(action).trim())),
+      ].filter(Boolean);
+      for (const action of unique) {
+        const code = `${resource}:${action}`;
+        if (!allowed.has(code)) {
+          throw BusinessError.unprocessable(
+            `Permission ${code} tidak ada di katalog tenant`,
+            'UNKNOWN_PERMISSION',
+          );
+        }
+        permissionScopes[code] = scopes?.[code] ?? 'organization';
+      }
+      if (unique.length > 0) {
+        normalized[resource] = unique;
+      }
+    }
+
+    return { permission: normalized, permissionScopes };
+  }
+
   async remove(tenantId: string, id: string): Promise<void> {
     await this.getById(tenantId, id);
     const deleted = await this.permissionRepo.softDeleteForTenant(

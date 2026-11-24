@@ -50,6 +50,7 @@ export function buildPermissionCatalogView(rows: RbacPermission[]): {
     };
 
     permissions.push({
+      id: row.id,
       code: `${row.resource}:${row.action}`,
       resource: row.resource,
       action: row.action,

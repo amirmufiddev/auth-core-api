@@ -5,6 +5,7 @@ import { AuthService } from '@thallesp/nestjs-better-auth';
 import { BusinessError } from '@/common/errors/business-error';
 import { TenantContextStorage } from '@/modules/tenant/context/tenant-context.storage';
 import { OrganizationRoleService } from './organization-role.service';
+import { RbacPermissionService } from './rbac-permission.service';
 import {
   ORGANIZATION_ROLE_REPOSITORY_TOKEN,
   type IOrganizationRoleRepository,
@@ -33,6 +34,9 @@ describe('OrganizationRoleService', () => {
       findByOrganizationAndRoleName: mock(() => Promise.resolve(mockRole)),
       findById: mock(() => Promise.resolve(mockRole)),
       findOrganizationTenantId: mock(() => Promise.resolve('ten-1')),
+      insert: mock((row) => Promise.resolve({ ...mockRole, ...row })),
+      updateById: mock(() => Promise.resolve(mockRole)),
+      deleteById: mock(() => Promise.resolve(true)),
     };
 
     authService = {
@@ -77,6 +81,20 @@ describe('OrganizationRoleService', () => {
         {
           provide: EventEmitter2,
           useValue: eventEmitter,
+        },
+        {
+          provide: RbacPermissionService,
+          useValue: {
+            normalizePermission: mock(
+              async (
+                _tenantId: string,
+                permission: Record<string, string[]>,
+              ) => ({
+                permission,
+                permissionScopes: {},
+              }),
+            ),
+          },
         },
       ],
     }).compile();

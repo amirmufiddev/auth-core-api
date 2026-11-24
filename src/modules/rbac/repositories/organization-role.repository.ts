@@ -3,7 +3,7 @@ import { and, eq } from 'drizzle-orm';
 import { NodePgDatabase } from 'drizzle-orm/node-postgres';
 import { DRIZZLE } from '@/database/database.constants';
 import * as schema from '@/database/schema';
-import { OrganizationRole } from '@/database/schema';
+import { NewOrganizationRole, OrganizationRole } from '@/database/schema';
 import type { IOrganizationRoleRepository } from '../interfaces/organization-role-repository.interface';
 
 @Injectable()
@@ -70,5 +70,46 @@ export class OrganizationRoleRepository implements IOrganizationRoleRepository {
       .limit(1);
 
     return rows[0]?.tenantId ?? null;
+  }
+
+  async insert(row: NewOrganizationRole): Promise<OrganizationRole> {
+    const [created] = await this.db
+      .insert(schema.organizationRole)
+      .values(row)
+      .returning();
+    return created;
+  }
+
+  async updateById(
+    organizationId: string,
+    roleId: string,
+    patch: Partial<
+      Pick<OrganizationRole, 'role' | 'permission' | 'permissionScopes'>
+    >,
+  ): Promise<OrganizationRole | undefined> {
+    const [updated] = await this.db
+      .update(schema.organizationRole)
+      .set({ ...patch, updatedAt: new Date() })
+      .where(
+        and(
+          eq(schema.organizationRole.organizationId, organizationId),
+          eq(schema.organizationRole.id, roleId),
+        ),
+      )
+      .returning();
+    return updated;
+  }
+
+  async deleteById(organizationId: string, roleId: string): Promise<boolean> {
+    const deleted = await this.db
+      .delete(schema.organizationRole)
+      .where(
+        and(
+          eq(schema.organizationRole.organizationId, organizationId),
+          eq(schema.organizationRole.id, roleId),
+        ),
+      )
+      .returning({ id: schema.organizationRole.id });
+    return deleted.length > 0;
   }
 }

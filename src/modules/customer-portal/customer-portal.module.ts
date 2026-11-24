@@ -6,6 +6,7 @@ import { FeatureTierModule } from '@/modules/feature-tier';
 import { RbacModule } from '@/modules/rbac';
 import { TenantModule } from '@/modules/tenant';
 import { CustomerPortalController } from './controllers/customer-portal.controller';
+import { PortalOrganizationRbacController } from './controllers/portal-organization-rbac.controller';
 import { OperatorTenantUsersController } from './controllers/operator-tenant-users.controller';
 import { TenantOwnerGuard } from './guards/tenant-owner.guard';
 import { PORTAL_OAUTH_CLIENT_REPOSITORY_TOKEN } from './interfaces/portal-oauth-client-repository.interface';
@@ -30,7 +31,11 @@ import { PortalTenantApiKeysService } from './services/portal-tenant-api-keys.se
     RbacModule,
     FeatureTierModule,
   ],
-  controllers: [CustomerPortalController, OperatorTenantUsersController],
+  controllers: [
+    CustomerPortalController,
+    OperatorTenantUsersController,
+    PortalOrganizationRbacController,
+  ],
   providers: [
     {
       provide: PORTAL_OAUTH_CLIENT_REPOSITORY_TOKEN,
