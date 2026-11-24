@@ -42,12 +42,12 @@ describe('PortalTenantOrgsService (Strict Tenant Isolation)', () => {
       }),
     ];
 
-    const listByTenantPaginated = mock(async (query: ListTenantOrgsQuery) => {
+    const listByTenantPaginated = mock((query: ListTenantOrgsQuery) => {
       const filtered = allOrgs.filter((o) => o.tenantId === query.tenantId);
-      return {
+      return Promise.resolve({
         items: filtered,
         total: filtered.length,
-      };
+      });
     });
 
     const repo: IPortalTenantOrgRepository = {
@@ -73,17 +73,19 @@ describe('PortalTenantOrgsService (Strict Tenant Isolation)', () => {
   });
 
   it('should clamp pagination and forward trimmed search query to repository', async () => {
-    const listByTenantPaginated = mock(async (_query: ListTenantOrgsQuery) => ({
-      items: [
-        makeOrgRow({
-          id: 'org_amir_1',
-          tenantId: 'ten_amir',
-          name: 'Nusantara Tech',
-          slug: 'nusantara-tech',
-        }),
-      ],
-      total: 1,
-    }));
+    const listByTenantPaginated = mock((_query: ListTenantOrgsQuery) =>
+      Promise.resolve({
+        items: [
+          makeOrgRow({
+            id: 'org_amir_1',
+            tenantId: 'ten_amir',
+            name: 'Nusantara Tech',
+            slug: 'nusantara-tech',
+          }),
+        ],
+        total: 1,
+      }),
+    );
 
     const service = new PortalTenantOrgsService({ listByTenantPaginated });
     const result = await service.listTenantOrganizations('ten_amir', {
@@ -105,10 +107,12 @@ describe('PortalTenantOrgsService (Strict Tenant Isolation)', () => {
   });
 
   it('should support legacy limit query param when pageSize is omitted', async () => {
-    const listByTenantPaginated = mock(async (_query: ListTenantOrgsQuery) => ({
-      items: [],
-      total: 0,
-    }));
+    const listByTenantPaginated = mock((_query: ListTenantOrgsQuery) =>
+      Promise.resolve({
+        items: [],
+        total: 0,
+      }),
+    );
 
     const service = new PortalTenantOrgsService({ listByTenantPaginated });
     const result = await service.listTenantOrganizations('ten_amir', {
@@ -144,15 +148,17 @@ describe('PortalTenantOrgsService (Strict Tenant Isolation)', () => {
         captured.limitArg = n;
         return selectChain;
       }),
-      offset: mock(async (n: number) => {
+      offset: mock((n: number) => {
         captured.offsetArg = n;
-        return [makeOrgRow({ id: 'org_amir_1', tenantId: 'ten_amir' })];
+        return Promise.resolve([
+          makeOrgRow({ id: 'org_amir_1', tenantId: 'ten_amir' }),
+        ]);
       }),
     };
 
     const countChain = {
       from: mock(() => countChain),
-      where: mock(async () => [{ total: 1 }]),
+      where: mock(() => Promise.resolve([{ total: 1 }])),
     };
 
     let callIdx = 0;

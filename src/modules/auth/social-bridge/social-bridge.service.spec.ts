@@ -27,17 +27,15 @@ function createInMemoryRedisMock() {
   const store = new Map<string, { value: string; ttl?: number }>();
   return {
     store,
-    set: mock(
-      async (key: string, value: string, _ex?: string, ttl?: number) => {
-        store.set(key, { value, ttl });
-        return 'OK';
-      },
-    ),
-    getdel: mock(async (key: string) => {
+    set: mock((key: string, value: string, _ex?: string, ttl?: number) => {
+      store.set(key, { value, ttl });
+      return Promise.resolve('OK');
+    }),
+    getdel: mock((key: string) => {
       const entry = store.get(key);
-      if (!entry) return null;
+      if (!entry) return Promise.resolve(null);
       store.delete(key);
-      return entry.value;
+      return Promise.resolve(entry.value);
     }),
   };
 }
@@ -70,32 +68,44 @@ describe('SocialBridgeService & SocialBridgeController', () => {
     const configService = createConfigMock();
 
     const repo: ISocialBridgeRepository = {
-      findTenantCredentials: mock(async (tenantId: string, provider: string) =>
-        tenantId === 'ten_pos' && provider === 'google'
-          ? { clientId: 'ten-pos-google-id', clientSecret: 'ten-pos-secret' }
-          : null,
+      findTenantCredentials: mock((tenantId: string, provider: string) =>
+        Promise.resolve(
+          tenantId === 'ten_pos' && provider === 'google'
+            ? { clientId: 'ten-pos-google-id', clientSecret: 'ten-pos-secret' }
+            : null,
+        ),
       ),
-      findAccountByProvider: mock(async () => options?.existingAccount ?? null),
-      findUserByTenantEmail: mock(async () => options?.existingUser ?? null),
-      createUserWithAccount: mock(async (input) => ({
-        userId: 'usr_new_1',
-        email: input.email,
-      })),
-      linkAccountToUser: mock(async () => undefined),
-      createSession: mock(async (input) => ({
-        id: 'ses_1',
-        token: input.token,
-      })),
+      findAccountByProvider: mock(() =>
+        Promise.resolve(options?.existingAccount ?? null),
+      ),
+      findUserByTenantEmail: mock(() =>
+        Promise.resolve(options?.existingUser ?? null),
+      ),
+      createUserWithAccount: mock((input) =>
+        Promise.resolve({
+          userId: 'usr_new_1',
+          email: input.email,
+        }),
+      ),
+      linkAccountToUser: mock(() => Promise.resolve(undefined)),
+      createSession: mock((input) =>
+        Promise.resolve({
+          id: 'ses_1',
+          token: input.token,
+        }),
+      ),
     };
 
     const oauthClient: ISocialBridgeOAuthClient = {
-      exchangeCodeForProfile: mock(async () => ({
-        providerAccountId:
-          options?.oauthProfile?.providerAccountId ?? 'google-sub-123',
-        email: options?.oauthProfile?.email ?? 'amir@pos.id',
-        name: options?.oauthProfile?.name ?? 'Amir',
-        emailVerified: options?.oauthProfile?.emailVerified ?? true,
-      })),
+      exchangeCodeForProfile: mock(() =>
+        Promise.resolve({
+          providerAccountId:
+            options?.oauthProfile?.providerAccountId ?? 'google-sub-123',
+          email: options?.oauthProfile?.email ?? 'amir@pos.id',
+          name: options?.oauthProfile?.name ?? 'Amir',
+          emailVerified: options?.oauthProfile?.emailVerified ?? true,
+        }),
+      ),
     };
 
     const service = new SocialBridgeService(
@@ -108,7 +118,7 @@ describe('SocialBridgeService & SocialBridgeController', () => {
     return { service, redis, repo, oauthClient, configService };
   };
 
-  it('createSignedState builds returnOrigin purely on server and rejects open-redirect returnTo with 400 INVALID_RETURN_TO', () => {
+  it('should build returnOrigin purely on server and reject open-redirect returnTo with 400 INVALID_RETURN_TO', () => {
     const { service } = createDeps();
 
     // Rejects external URL and protocol-relative URL
@@ -168,7 +178,7 @@ describe('SocialBridgeService & SocialBridgeController', () => {
     expect(decodedPath.returnTo).toBe('/app');
   });
 
-  it('handleCentralCallback exchanges code with tenant secret, stores one-time code in Redis (TTL 45s), and redirects outside /api/auth/* without Set-Cookie', async () => {
+  it('should exchange code with tenant secret on central callback, store one-time code in Redis (TTL 45s), and redirect outside /api/auth/* without Set-Cookie', async () => {
     const { service, redis, oauthClient } = createDeps();
 
     // Subdomain mode
@@ -224,7 +234,7 @@ describe('SocialBridgeService & SocialBridgeController', () => {
     );
   });
 
-  it('exchangeOnTenantHost consumes code via GETDEL (replay rejected 401), enforces tenantId match (403), and rejects unverified email auto-link (403 UNVERIFIED_SOCIAL_EMAIL)', async () => {
+  it('should consume code via GETDEL on tenant host (replay rejected 401), enforce tenantId match (403), and reject unverified email auto-link (403 UNVERIFIED_SOCIAL_EMAIL)', async () => {
     // 1. Replay & tenant mismatch
     const { service, redis } = createDeps();
     const state = service.createSignedState({
@@ -333,7 +343,7 @@ describe('SocialBridgeService & SocialBridgeController', () => {
     expect(unverifiedDeps.repo.linkAccountToUser).not.toHaveBeenCalled();
   });
 
-  it('SocialBridgeController sets NO Set-Cookie on central callback and sets host-only cookie on tenant exchange', async () => {
+  it('should set NO Set-Cookie on central callback and set host-only cookie on tenant exchange', async () => {
     const { redis, repo, oauthClient, configService } = createDeps();
     const tenantMap: Record<string, TenantSummaryCache> = {
       'pos-amir': {
@@ -405,7 +415,9 @@ describe('SocialBridgeService & SocialBridgeController', () => {
     expect(exRes.headers.location).toBe('/dashboard');
     const setCookie = exRes.headers['set-cookie'];
     expect(setCookie).toBeDefined();
-    const cookieStr = Array.isArray(setCookie) ? setCookie.join('; ') : setCookie;
+    const cookieStr = Array.isArray(setCookie)
+      ? setCookie.join('; ')
+      : setCookie;
     expect(cookieStr).toContain('ac_t_pos-amir.session_token=');
     expect(cookieStr).toContain('HttpOnly');
     expect(cookieStr).toContain('Path=/');
@@ -414,7 +426,7 @@ describe('SocialBridgeService & SocialBridgeController', () => {
     await app.close();
   });
 
-  it('throws explicit error when BETTER_AUTH_SECRET is missing or empty', () => {
+  it('should throw explicit error when BETTER_AUTH_SECRET is missing or empty', () => {
     const prevEnvSecret = process.env.BETTER_AUTH_SECRET;
     delete process.env.BETTER_AUTH_SECRET;
 
@@ -426,7 +438,9 @@ describe('SocialBridgeService & SocialBridgeController', () => {
 
       const service = new SocialBridgeService(
         emptyConfig,
-        redis as unknown as ConstructorParameters<typeof SocialBridgeService>[1],
+        redis as unknown as ConstructorParameters<
+          typeof SocialBridgeService
+        >[1],
         repo,
         oauthClient,
       );
@@ -439,11 +453,13 @@ describe('SocialBridgeService & SocialBridgeController', () => {
           provider: 'google',
           returnTo: '/dashboard',
         }),
-      ).toThrow('BETTER_AUTH_SECRET is required for social bridge state signing');
+      ).toThrow(
+        'BETTER_AUTH_SECRET is required for social bridge state signing',
+      );
 
-      expect(() =>
-        service.verifySignedState('abc.def', 'google'),
-      ).toThrow('BETTER_AUTH_SECRET is required for social bridge state signing');
+      expect(() => service.verifySignedState('abc.def', 'google')).toThrow(
+        'BETTER_AUTH_SECRET is required for social bridge state signing',
+      );
     } finally {
       if (prevEnvSecret !== undefined) {
         process.env.BETTER_AUTH_SECRET = prevEnvSecret;
@@ -451,32 +467,47 @@ describe('SocialBridgeService & SocialBridgeController', () => {
     }
   });
 
-  it('FetchSocialBridgeOAuthClient falls back to GitHub /user/emails when /user email is null or verified is missing', async () => {
+  it('should fall back to GitHub /user/emails in FetchSocialBridgeOAuthClient when /user email is null or verified is missing', async () => {
     const originalFetch = globalThis.fetch;
-    const fetchMock = mock(async (url: string | URL | Request) => {
+    const fetchMock = mock((url: string | URL | Request) => {
       const target = String(url);
       if (target === 'https://github.com/login/oauth/access_token') {
-        return new Response(JSON.stringify({ access_token: 'gh-token-1' }), {
-          status: 200,
-          headers: { 'content-type': 'application/json' },
-        });
+        return Promise.resolve(
+          new Response(JSON.stringify({ access_token: 'gh-token-1' }), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          }),
+        );
       }
       if (target === 'https://api.github.com/user') {
-        return new Response(
-          JSON.stringify({ id: 42, login: 'amirmufid', name: 'Amir Mufid', email: null }),
-          { status: 200, headers: { 'content-type': 'application/json' } },
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              id: 42,
+              login: 'amirmufid',
+              name: 'Amir Mufid',
+              email: null,
+            }),
+            { status: 200, headers: { 'content-type': 'application/json' } },
+          ),
         );
       }
       if (target === 'https://api.github.com/user/emails') {
-        return new Response(
-          JSON.stringify([
-            { email: 'secondary@example.com', primary: false, verified: true },
-            { email: 'Amir@Pos.id', primary: true, verified: true },
-          ]),
-          { status: 200, headers: { 'content-type': 'application/json' } },
+        return Promise.resolve(
+          new Response(
+            JSON.stringify([
+              {
+                email: 'secondary@example.com',
+                primary: false,
+                verified: true,
+              },
+              { email: 'Amir@Pos.id', primary: true, verified: true },
+            ]),
+            { status: 200, headers: { 'content-type': 'application/json' } },
+          ),
         );
       }
-      return new Response('Not Found', { status: 404 });
+      return Promise.resolve(new Response('Not Found', { status: 404 }));
     });
     globalThis.fetch = fetchMock as unknown as typeof fetch;
 
@@ -487,7 +518,8 @@ describe('SocialBridgeService & SocialBridgeController', () => {
         code: 'gh-code-1',
         clientId: 'gh-id',
         clientSecret: 'gh-secret',
-        redirectUri: 'https://auth.authcore.local/api/social-bridge/callback/github',
+        redirectUri:
+          'https://auth.authcore.local/api/social-bridge/callback/github',
       });
 
       expect(profile).toEqual({

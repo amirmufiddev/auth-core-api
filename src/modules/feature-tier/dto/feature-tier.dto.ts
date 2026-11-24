@@ -18,7 +18,8 @@ export class UpdateFeatureStatusDto {
 export class UpdateTierFeaturesDto {
   @ApiProperty({
     type: [String],
-    description: 'Daftar feature ID (UUID) atau feature code yang diizinkan pada tier ini',
+    description:
+      'Daftar feature ID (UUID) atau feature code yang diizinkan pada tier ini',
   })
   @IsArray()
   @IsString({ each: true })

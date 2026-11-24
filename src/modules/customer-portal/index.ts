@@ -1,4 +1,5 @@
 export * from './customer-portal.module';
+export * from './controllers/customer-portal.controller';
 export * from './services/customer-portal.service';
 export * from './services/portal-tenant-orgs.service';
 export * from './services/portal-tenant-users.service';

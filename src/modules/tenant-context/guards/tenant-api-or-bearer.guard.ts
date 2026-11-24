@@ -72,7 +72,8 @@ export class TenantApiOrBearerGuard implements CanActivate {
 
     const headers = request.headers ?? {};
     const apiKey = extractApiKey(headers);
-    const authInstance = await this.authRuntimeRegistry.getForContext(tenantCtx);
+    const authInstance =
+      await this.authRuntimeRegistry.getForContext(tenantCtx);
 
     if (apiKey) {
       const verifyResult = await (
@@ -148,8 +149,9 @@ export class TenantApiOrBearerGuard implements CanActivate {
         headers: toWebHeaders(headers),
       })) as typeof sessionResult;
     } catch (error) {
-      const status = (error as { statusCode?: number; status?: number })
-        ?.statusCode ?? (error as { status?: number })?.status;
+      const status =
+        (error as { statusCode?: number; status?: number })?.statusCode ??
+        (error as { status?: number })?.status;
       if (status === 403) {
         throw new ForbiddenException({
           code: 'CROSS_TENANT_SESSION',
@@ -179,8 +181,7 @@ export class TenantApiOrBearerGuard implements CanActivate {
       authType: 'bearer',
       tenantId: tenantCtx.tenantId,
       userId: sessionResult.user.id,
-      activeOrganizationId:
-        sessionResult.session?.activeOrganizationId ?? null,
+      activeOrganizationId: sessionResult.session?.activeOrganizationId ?? null,
     };
     return true;
   }

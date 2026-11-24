@@ -5,6 +5,7 @@ import {
   Query,
   Req,
   UseGuards,
+  VERSION_NEUTRAL,
 } from '@nestjs/common';
 import { AllowAnonymous } from '@thallesp/nestjs-better-auth';
 import type {
@@ -18,7 +19,7 @@ import { TenantContextService } from '../services/tenant-context.service';
 
 @AllowAnonymous()
 @UseGuards(TenantApiOrBearerGuard)
-@Controller('context')
+@Controller({ path: 'api/context', version: VERSION_NEUTRAL })
 export class TenantContextController {
   constructor(private readonly tenantContextService: TenantContextService) {}
 

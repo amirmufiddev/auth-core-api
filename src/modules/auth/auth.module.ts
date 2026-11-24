@@ -120,7 +120,7 @@ export class AuthRuntimeCoreModule {}
         };
 
         const tenantBaseDomain =
-          configService.get<string>('TENANT_BASE_DOMAIN') ??
+          configService.get<string>('TENANT_BASE_DOMAIN', { infer: true }) ??
           process.env.TENANT_BASE_DOMAIN ??
           'authcore.local';
 
@@ -149,8 +149,7 @@ export class AuthRuntimeCoreModule {}
           });
 
         const getFeatureResolutionService = ():
-          | FeatureResolutionService
-          | undefined => {
+          FeatureResolutionService | undefined => {
           try {
             return moduleRef.get<FeatureResolutionService>(
               'FEATURE_RESOLUTION_SERVICE',

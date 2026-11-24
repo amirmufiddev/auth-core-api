@@ -214,7 +214,10 @@ export class TenantFeatureConfigService {
       }
     }
 
-    await this.authRuntimeRegistry?.invalidateTenant(tenantId, newConfigVersion);
+    await this.authRuntimeRegistry?.invalidateTenant(
+      tenantId,
+      newConfigVersion,
+    );
 
     if (this.redisClient?.publish) {
       try {

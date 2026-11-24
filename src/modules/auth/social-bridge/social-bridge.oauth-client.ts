@@ -111,7 +111,9 @@ export class FetchSocialBridgeOAuthClient implements ISocialBridgeOAuthClient {
     const profile = (await userRes.json()) as Record<string, unknown>;
     const providerKey = input.provider.toLowerCase();
     const providerAccountId = String(profile.sub ?? profile.id ?? '');
-    let email = String(profile.email ?? '').trim().toLowerCase();
+    let email = String(profile.email ?? '')
+      .trim()
+      .toLowerCase();
     const rawVerified = profile.email_verified ?? profile.verified;
     let emailVerified = Boolean(rawVerified);
 

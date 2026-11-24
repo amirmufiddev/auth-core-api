@@ -21,30 +21,13 @@ function createCryptoService(withKey: boolean): CryptoService {
   return new CryptoService(configService);
 }
 
-function createMockRepo(overrides?: Partial<IFeatureTierRepository>): IFeatureTierRepository {
+function createMockRepo(
+  overrides?: Partial<IFeatureTierRepository>,
+): IFeatureTierRepository {
   return {
-    listFeatures: mock(async () => [
-      {
-        id: 'feat-google-uuid',
-        code: 'socialGoogle',
-        name: 'Google OAuth',
-        description: null,
-        category: 'social',
-        packageName: 'better-auth',
-        status: 'active' as const,
-        dependencies: [],
-        availableSetting: [
-          { key: 'clientId', label: 'Client ID', type: 'string' },
-          { key: 'clientSecret', label: 'Client Secret', type: 'secret' },
-          { key: 'prompt', label: 'Prompt', type: 'string' },
-        ],
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      },
-    ]),
-    findFeatureByIdOrCode: mock(async (idOrCode: string) => {
-      if (idOrCode === 'socialGoogle' || idOrCode === 'feat-google-uuid') {
-        return {
+    listFeatures: mock(() =>
+      Promise.resolve([
+        {
           id: 'feat-google-uuid',
           code: 'socialGoogle',
           name: 'Google OAuth',
@@ -60,54 +43,81 @@ function createMockRepo(overrides?: Partial<IFeatureTierRepository>): IFeatureTi
           ],
           createdAt: new Date(),
           updatedAt: new Date(),
-        };
+        },
+      ]),
+    ),
+    findFeatureByIdOrCode: mock((idOrCode: string) => {
+      if (idOrCode === 'socialGoogle' || idOrCode === 'feat-google-uuid') {
+        return Promise.resolve({
+          id: 'feat-google-uuid',
+          code: 'socialGoogle',
+          name: 'Google OAuth',
+          description: null,
+          category: 'social',
+          packageName: 'better-auth',
+          status: 'active' as const,
+          dependencies: [],
+          availableSetting: [
+            { key: 'clientId', label: 'Client ID', type: 'string' },
+            { key: 'clientSecret', label: 'Client Secret', type: 'secret' },
+            { key: 'prompt', label: 'Prompt', type: 'string' },
+          ],
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        });
       }
-      return null;
+      return Promise.resolve(null);
     }),
-    updateFeatureStatus: mock(async () => null),
-    listTiersWithFeatures: mock(async () => []),
-    findTierById: mock(async () => ({
-      id: 'tier_business',
-      code: 'business',
-      name: 'Business',
-      description: null,
-      sortOrder: 2,
-      isDefault: false,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    })),
-    getTierFeatureIds: mock(async () => ['feat-google-uuid']),
-    replaceTierFeatures: mock(async () => {}),
-    listPlatformFeatureConfigs: mock(async () => []),
-    listTenantFeatureConfigs: mock(async () => []),
-    findTenantFeatureConfig: mock(async () => null),
-    upsertTenantFeatureConfig: mock(async (input) => ({
-      tenantId: input.tenantId,
-      featureId: input.featureId,
-      enabled: input.enabled,
-      settings: input.settings,
-      secrets: input.secrets,
-      updatedBy: input.updatedBy ?? null,
-      updatedAt: new Date(),
-    })),
-    bumpTenantConfigVersion: mock(async () => 2),
+    updateFeatureStatus: mock(() => Promise.resolve(null)),
+    listTiersWithFeatures: mock(() => Promise.resolve([])),
+    findTierById: mock(() =>
+      Promise.resolve({
+        id: 'tier_business',
+        code: 'business',
+        name: 'Business',
+        description: null,
+        sortOrder: 2,
+        isDefault: false,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      }),
+    ),
+    getTierFeatureIds: mock(() => Promise.resolve(['feat-google-uuid'])),
+    replaceTierFeatures: mock(() => Promise.resolve()),
+    listPlatformFeatureConfigs: mock(() => Promise.resolve([])),
+    listTenantFeatureConfigs: mock(() => Promise.resolve([])),
+    findTenantFeatureConfig: mock(() => Promise.resolve(null)),
+    upsertTenantFeatureConfig: mock((input) =>
+      Promise.resolve({
+        tenantId: input.tenantId,
+        featureId: input.featureId,
+        enabled: input.enabled,
+        settings: input.settings,
+        secrets: input.secrets,
+        updatedBy: input.updatedBy ?? null,
+        updatedAt: new Date(),
+      }),
+    ),
+    bumpTenantConfigVersion: mock(() => Promise.resolve(2)),
     ...overrides,
   };
 }
 
 describe('TenantFeatureConfigService (Review Focus #2)', () => {
-  it('rejects writing a secret without AUTH_CONFIG_ENCRYPTION_KEY with 400 ENCRYPTION_KEY_MISSING', async () => {
+  it('should reject writing a secret without AUTH_CONFIG_ENCRYPTION_KEY with 400 ENCRYPTION_KEY_MISSING', async () => {
     const repo = createMockRepo();
     const crypto = createCryptoService(false);
     const tenantService = {
-      getTenantById: mock(async () => ({
-        id: 'ten_1',
-        tierId: 'tier_business',
-        configVersion: 1,
-      })),
+      getTenantById: mock(() =>
+        Promise.resolve({
+          id: 'ten_1',
+          tierId: 'tier_business',
+          configVersion: 1,
+        }),
+      ),
     } as any;
     const registry = {
-      invalidateTenant: mock(async () => {}),
+      invalidateTenant: mock(() => Promise.resolve()),
     } as any;
 
     const service = new TenantFeatureConfigService(
@@ -139,28 +149,30 @@ describe('TenantFeatureConfigService (Review Focus #2)', () => {
     expect(repo.upsertTenantFeatureConfig).not.toHaveBeenCalled();
   });
 
-  it('moves secret-typed fields from availableSetting into encrypted secrets column and strips them from settings', async () => {
+  it('should move secret-typed fields from availableSetting into encrypted secrets column and strip them from settings', async () => {
     let savedInput: any = null;
     const repo = createMockRepo({
-      upsertTenantFeatureConfig: mock(async (input) => {
+      upsertTenantFeatureConfig: mock((input) => {
         savedInput = input;
-        return {
+        return Promise.resolve({
           ...input,
           updatedBy: input.updatedBy ?? null,
           updatedAt: new Date(),
-        };
+        });
       }),
     });
     const crypto = createCryptoService(true);
     const tenantService = {
-      getTenantById: mock(async () => ({
-        id: 'ten_1',
-        tierId: 'tier_business',
-        configVersion: 1,
-      })),
+      getTenantById: mock(() =>
+        Promise.resolve({
+          id: 'ten_1',
+          tierId: 'tier_business',
+          configVersion: 1,
+        }),
+      ),
     } as any;
     const registry = {
-      invalidateTenant: mock(async () => {}),
+      invalidateTenant: mock(() => Promise.resolve()),
     } as any;
 
     const service = new TenantFeatureConfigService(
@@ -197,7 +209,7 @@ describe('TenantFeatureConfigService (Review Focus #2)', () => {
     );
   });
 
-  it('preserves existing ciphertext on empty secret input and GET config only returns secretsConfigured booleans', async () => {
+  it('should preserve existing ciphertext on empty secret input and GET config only returns secretsConfigured booleans', async () => {
     const crypto = createCryptoService(true);
     const existingCiphertext: EncryptedPayload = crypto.encryptSecret(
       'original-google-secret',
@@ -205,17 +217,8 @@ describe('TenantFeatureConfigService (Review Focus #2)', () => {
 
     let savedInput: any = null;
     const repo = createMockRepo({
-      findTenantFeatureConfig: mock(async () => ({
-        tenantId: 'ten_1',
-        featureId: 'feat-google-uuid',
-        enabled: true,
-        settings: { clientId: 'cid-123' },
-        secrets: { clientSecret: existingCiphertext },
-        updatedBy: 'user_1',
-        updatedAt: new Date(),
-      })),
-      listTenantFeatureConfigs: mock(async () => [
-        {
+      findTenantFeatureConfig: mock(() =>
+        Promise.resolve({
           tenantId: 'ten_1',
           featureId: 'feat-google-uuid',
           enabled: true,
@@ -223,27 +226,42 @@ describe('TenantFeatureConfigService (Review Focus #2)', () => {
           secrets: { clientSecret: existingCiphertext },
           updatedBy: 'user_1',
           updatedAt: new Date(),
-        },
-      ]),
-      upsertTenantFeatureConfig: mock(async (input) => {
+        }),
+      ),
+      listTenantFeatureConfigs: mock(() =>
+        Promise.resolve([
+          {
+            tenantId: 'ten_1',
+            featureId: 'feat-google-uuid',
+            enabled: true,
+            settings: { clientId: 'cid-123' },
+            secrets: { clientSecret: existingCiphertext },
+            updatedBy: 'user_1',
+            updatedAt: new Date(),
+          },
+        ]),
+      ),
+      upsertTenantFeatureConfig: mock((input) => {
         savedInput = input;
-        return {
+        return Promise.resolve({
           ...input,
           updatedBy: input.updatedBy ?? null,
           updatedAt: new Date(),
-        };
+        });
       }),
     });
 
     const tenantService = {
-      getTenantById: mock(async () => ({
-        id: 'ten_1',
-        tierId: 'tier_business',
-        configVersion: 1,
-      })),
+      getTenantById: mock(() =>
+        Promise.resolve({
+          id: 'ten_1',
+          tierId: 'tier_business',
+          configVersion: 1,
+        }),
+      ),
     } as any;
     const registry = {
-      invalidateTenant: mock(async () => {}),
+      invalidateTenant: mock(() => Promise.resolve()),
     } as any;
 
     const service = new TenantFeatureConfigService(
@@ -278,31 +296,35 @@ describe('TenantFeatureConfigService (Review Focus #2)', () => {
     expect(JSON.stringify(googleItem)).not.toContain(existingCiphertext.ct);
   });
 
-  it('resolveForTenant does NOT inherit process.env.GOOGLE_CLIENT_SECRET when tenant ciphertext is empty', async () => {
+  it('should NOT inherit process.env.GOOGLE_CLIENT_SECRET in resolveForTenant when tenant ciphertext is empty', async () => {
     const prevGoogleSecret = process.env.GOOGLE_CLIENT_SECRET;
     process.env.GOOGLE_CLIENT_SECRET = 'platform-env-google-secret';
 
     try {
       const crypto = createCryptoService(true);
       const repo = createMockRepo({
-        listTenantFeatureConfigs: mock(async () => [
-          {
-            tenantId: 'ten_1',
-            featureId: 'feat-google-uuid',
-            enabled: true,
-            settings: { clientId: 'tenant-cid' },
-            secrets: {},
-            updatedBy: 'user_1',
-            updatedAt: new Date(),
-          },
-        ]),
+        listTenantFeatureConfigs: mock(() =>
+          Promise.resolve([
+            {
+              tenantId: 'ten_1',
+              featureId: 'feat-google-uuid',
+              enabled: true,
+              settings: { clientId: 'tenant-cid' },
+              secrets: {},
+              updatedBy: 'user_1',
+              updatedAt: new Date(),
+            },
+          ]),
+        ),
       });
       const tenantService = {
-        getTenantById: mock(async () => ({
-          id: 'ten_1',
-          tierId: 'tier_business',
-          configVersion: 1,
-        })),
+        getTenantById: mock(() =>
+          Promise.resolve({
+            id: 'ten_1',
+            tierId: 'tier_business',
+            configVersion: 1,
+          }),
+        ),
       } as any;
 
       const resolution = new FeatureResolutionService(

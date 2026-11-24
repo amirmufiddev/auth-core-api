@@ -29,7 +29,10 @@ export class FeatureTierRepository implements IFeatureTierRepository {
     return this.db
       .select()
       .from(schema.authFeatures)
-      .orderBy(asc(schema.authFeatures.category), asc(schema.authFeatures.code));
+      .orderBy(
+        asc(schema.authFeatures.category),
+        asc(schema.authFeatures.code),
+      );
   }
 
   async findFeatureByIdOrCode(idOrCode: string): Promise<AuthFeature | null> {

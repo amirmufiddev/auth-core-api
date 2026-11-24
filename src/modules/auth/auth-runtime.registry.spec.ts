@@ -48,13 +48,16 @@ function createMockConfigService(overrides: Record<string, unknown> = {}) {
 
 function createMockRedis() {
   const store = new Map<string, string>();
-  const listeners = new Map<string, Array<(channel: string, msg: string) => void>>();
+  const listeners = new Map<
+    string,
+    Array<(channel: string, msg: string) => void>
+  >();
 
   const subscriber = {
-    connect: mock(async () => {}),
-    subscribe: mock(async () => 1),
-    unsubscribe: mock(async () => 1),
-    quit: mock(async () => 'OK'),
+    connect: mock(() => Promise.resolve()),
+    subscribe: mock(() => Promise.resolve(1)),
+    unsubscribe: mock(() => Promise.resolve(1)),
+    quit: mock(() => Promise.resolve('OK')),
     on: mock((event: string, cb: (channel: string, msg: string) => void) => {
       const list = listeners.get(event) ?? [];
       list.push(cb);
@@ -63,22 +66,22 @@ function createMockRedis() {
   };
 
   const client = {
-    get: mock(async (key: string) => store.get(key) ?? null),
-    set: mock(async (key: string, val: string) => {
+    get: mock((key: string) => Promise.resolve(store.get(key) ?? null)),
+    set: mock((key: string, val: string) => {
       store.set(key, val);
-      return 'OK';
+      return Promise.resolve('OK');
     }),
-    incr: mock(async (key: string) => {
+    incr: mock((key: string) => {
       const next = Number(store.get(key) ?? '0') + 1;
       store.set(key, String(next));
-      return next;
+      return Promise.resolve(next);
     }),
-    publish: mock(async (channel: string, msg: string) => {
+    publish: mock((channel: string, msg: string) => {
       const cbs = listeners.get('message') ?? [];
       for (const cb of cbs) {
         cb(channel, msg);
       }
-      return cbs.length;
+      return Promise.resolve(cbs.length);
     }),
     duplicate: mock(() => subscriber),
     _store: store,
@@ -89,7 +92,7 @@ function createMockRedis() {
 }
 
 describe('AuthRuntimeRegistry', () => {
-  it('returns platformInstance when tenantId is null', async () => {
+  it('should return platformInstance when tenantId is null', async () => {
     const redis = createMockRedis();
     const registry = new AuthRuntimeRegistry(
       redis as any,
@@ -99,10 +102,10 @@ describe('AuthRuntimeRegistry', () => {
     const platformAuth = {
       options: { baseURL: 'http://localhost:3000' },
       api: { whoami: () => 'platform' },
-      handler: async () => new Response('platform'),
+      handler: () => Promise.resolve(new Response('platform')),
     } as any;
 
-    const buildTenantAuth = mock(async () => ({}) as any);
+    const buildTenantAuth = mock(() => Promise.resolve({} as any));
 
     registry.initialize({
       platformInstance: platformAuth,
@@ -110,12 +113,14 @@ describe('AuthRuntimeRegistry', () => {
       buildTenantAuth,
     });
 
-    const resolved = await registry.getForContext(DEFAULT_PLATFORM_TENANT_CONTEXT);
+    const resolved = await registry.getForContext(
+      DEFAULT_PLATFORM_TENANT_CONTEXT,
+    );
     expect(resolved).toBe(platformAuth);
     expect(buildTenantAuth).not.toHaveBeenCalled();
   });
 
-  it('scopes LRU keys by ${tenantId}:${source}:${configVersion}:${catalogVersion} and separates path vs subdomain instances', async () => {
+  it('should scope LRU keys by ${tenantId}:${source}:${configVersion}:${catalogVersion} and separate path vs subdomain instances', async () => {
     const redis = createMockRedis();
     const configService = createMockConfigService({
       TENANT_BASE_DOMAIN: 'authcore.local',
@@ -124,9 +129,9 @@ describe('AuthRuntimeRegistry', () => {
 
     const sharedPool = getSharedPool();
     const sharedSecondaryStorage = {
-      get: async () => null,
-      set: async () => {},
-      delete: async () => {},
+      get: () => Promise.resolve(null),
+      set: () => Promise.resolve(),
+      delete: () => Promise.resolve(),
     } as any;
 
     const platformAuth = createAuthInstance({
@@ -172,10 +177,7 @@ describe('AuthRuntimeRegistry', () => {
     const subdomainInstance = await registry.getForContext(subdomainCtx);
 
     expect(pathInstance).not.toBe(subdomainInstance);
-    expect(builtKeys).toEqual([
-      'tenant-1:path:3:0',
-      'tenant-1:subdomain:3:0',
-    ]);
+    expect(builtKeys).toEqual(['tenant-1:path:3:0', 'tenant-1:subdomain:3:0']);
 
     // Verify cookie Path & baseURL differ per source
     expect(pathInstance.options.advanced?.cookiePrefix).toBe('ac_t_acme');
@@ -205,7 +207,7 @@ describe('AuthRuntimeRegistry', () => {
     expect(builtKeys).toHaveLength(2);
   });
 
-  it('increments authcore:catalog:version in Redis on invalidateCatalog() and lazily rebuilds tenant instances', async () => {
+  it('should increment authcore:catalog:version in Redis on invalidateCatalog() and lazily rebuild tenant instances', async () => {
     const redis = createMockRedis();
     const registry = new AuthRuntimeRegistry(
       redis as any,
@@ -249,7 +251,7 @@ describe('AuthRuntimeRegistry', () => {
     expect(buildCount).toBe(2);
   });
 
-  it('defaults tenant Passkey rpID to TENANT_BASE_DOMAIN', () => {
+  it('should default tenant Passkey rpID to TENANT_BASE_DOMAIN', () => {
     const configService = createMockConfigService({
       TENANT_BASE_DOMAIN: 'authcore.id',
     });
@@ -276,7 +278,7 @@ describe('AuthRuntimeRegistry', () => {
     expect(passkeyPlugin.options?.rpID).toBe('authcore.id');
   });
 
-  it('evicts least-recently-used entries when exceeding AUTH_RUNTIME_LRU_MAX', async () => {
+  it('should evict least-recently-used entries when exceeding AUTH_RUNTIME_LRU_MAX', async () => {
     const redis = createMockRedis();
     const registry = new AuthRuntimeRegistry(
       redis as any,
@@ -331,7 +333,7 @@ describe('AuthRuntimeRegistry', () => {
     expect(instB2).not.toBe(instB1);
   });
 
-  it('routes createContextAwareProxy() handler and api calls using TenantContextStorage', async () => {
+  it('should route createContextAwareProxy() handler and api calls using TenantContextStorage', async () => {
     const redis = createMockRedis();
     const registry = new AuthRuntimeRegistry(
       redis as any,
@@ -340,16 +342,16 @@ describe('AuthRuntimeRegistry', () => {
 
     const platformAuth = {
       api: {
-        whoami: async () => 'platform',
+        whoami: () => Promise.resolve('platform'),
       },
-      handler: async () => new Response('platform'),
+      handler: () => Promise.resolve(new Response('platform')),
     } as any;
 
     const tenantAuth = {
       api: {
-        whoami: async () => 'tenant-acme',
+        whoami: () => Promise.resolve('tenant-acme'),
       },
-      handler: async () => new Response('tenant-acme'),
+      handler: () => Promise.resolve(new Response('tenant-acme')),
     } as any;
 
     registry.initialize({
@@ -360,7 +362,9 @@ describe('AuthRuntimeRegistry', () => {
 
     const proxy = registry.createContextAwareProxy() as any;
 
-    const platformRes = await proxy.handler(new Request('http://localhost/test'));
+    const platformRes = await proxy.handler(
+      new Request('http://localhost/test'),
+    );
     expect(await platformRes.text()).toBe('platform');
     expect(await proxy.api.whoami()).toBe('platform');
 
@@ -373,13 +377,15 @@ describe('AuthRuntimeRegistry', () => {
     };
 
     await TenantContextStorage.run(tenantCtx, async () => {
-      const tenantRes = await proxy.handler(new Request('http://localhost/test'));
+      const tenantRes = await proxy.handler(
+        new Request('http://localhost/test'),
+      );
       expect(await tenantRes.text()).toBe('tenant-acme');
       expect(await proxy.api.whoami()).toBe('tenant-acme');
     });
   });
 
-  it('subscribes to authcore:config:invalidated via dedicated Redis duplicate client and handles tenant/catalog/platform invalidations', async () => {
+  it('should subscribe to authcore:config:invalidated via dedicated Redis duplicate client and handle tenant/catalog/platform invalidations', async () => {
     const redis = createMockRedis();
     const registry = new AuthRuntimeRegistry(
       redis as any,
@@ -424,7 +430,11 @@ describe('AuthRuntimeRegistry', () => {
     // Tenant invalidation via Pub/Sub evicts cached tenant instance
     await redis.publish(
       'authcore:config:invalidated',
-      JSON.stringify({ scope: 'tenant', tenantId: 't-pubsub', configVersion: 1 }),
+      JSON.stringify({
+        scope: 'tenant',
+        tenantId: 't-pubsub',
+        configVersion: 1,
+      }),
     );
     await Promise.resolve();
     const t2 = (await registry.getForContext(ctx)) as any;
@@ -459,7 +469,7 @@ describe('AuthRuntimeRegistry', () => {
     expect(redis._subscriber.quit).toHaveBeenCalledTimes(1);
   });
 
-  it('does not populate stale LRU entry when invalidateTenant is called while build is in-flight', async () => {
+  it('should not populate stale LRU entry when invalidateTenant is called while build is in-flight', async () => {
     const redis = createMockRedis();
     const registry = new AuthRuntimeRegistry(
       redis as any,
@@ -513,7 +523,7 @@ describe('AuthRuntimeRegistry', () => {
     expect(buildCount).toBe(2);
   });
 
-  it('apiProxy invokes a method present on tenant auth.api even when absent on platformInstance.api', async () => {
+  it('should invoke a method present on tenant auth.api even when absent on platformInstance.api', async () => {
     const redis = createMockRedis();
     const registry = new AuthRuntimeRegistry(
       redis as any,
@@ -522,18 +532,18 @@ describe('AuthRuntimeRegistry', () => {
 
     const platformAuth = {
       api: {
-        whoami: async () => 'platform',
+        whoami: () => Promise.resolve('platform'),
       },
-      handler: async () => new Response('platform'),
+      handler: () => Promise.resolve(new Response('platform')),
     } as any;
 
     const tenantAuth = {
       api: {
-        whoami: async () => 'tenant',
-        generatePasskeyRegistrationOptions: async (opts: { rpName: string }) =>
-          `passkey:${opts.rpName}`,
+        whoami: () => Promise.resolve('tenant'),
+        generatePasskeyRegistrationOptions: (opts: { rpName: string }) =>
+          Promise.resolve(`passkey:${opts.rpName}`),
       },
-      handler: async () => new Response('tenant'),
+      handler: () => Promise.resolve(new Response('tenant')),
     } as any;
 
     registry.initialize({

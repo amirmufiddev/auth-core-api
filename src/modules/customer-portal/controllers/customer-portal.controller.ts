@@ -185,7 +185,8 @@ export class CustomerPortalController {
 
   @Get(':tenantId/users')
   @ApiOperation({
-    summary: 'Daftar user terisolasi milik tenant (WHERE user.tenant_id = :tenantId)',
+    summary:
+      'Daftar user terisolasi milik tenant (WHERE user.tenant_id = :tenantId)',
   })
   async listTenantUsers(
     @Param('tenantId') tenantId: string,

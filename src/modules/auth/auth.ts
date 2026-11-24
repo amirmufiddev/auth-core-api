@@ -113,6 +113,15 @@ export interface AuthDependencies {
   >;
   agentAuthPluginFactory?: AgentAuthPluginFactory;
   auditLogger?: (entry: AuditLogInput) => Promise<void>;
+  resolveTenantClaims?: (
+    userId: string,
+    activeOrganizationId?: string | null,
+  ) => Promise<{
+    tenant_id: string | null;
+    active_organization_id: string | null;
+    org_role: string | null;
+    org_permissions: string[];
+  }>;
 }
 
 function getSecret(
@@ -240,6 +249,9 @@ async function resolveTenantClaimsForUser(
   org_role: string | null;
   org_permissions: string[];
 }> {
+  if (deps.resolveTenantClaims) {
+    return deps.resolveTenantClaims(userId, activeOrganizationId);
+  }
   const tenantId = getEffectiveTenantContext(deps.tenantContext).tenantId;
   if (!tenantId || !userId) {
     return {
@@ -858,7 +870,7 @@ const buildPluginsConfig = (
     if (deps.tenantContext?.tenantId) {
       const tenantDomain = (
         deps.tenantBaseDomain ||
-        deps.configService.get<string>('TENANT_BASE_DOMAIN') ||
+        deps.configService.get<string>('TENANT_BASE_DOMAIN', { infer: true }) ||
         process.env.TENANT_BASE_DOMAIN ||
         'authcore.local'
       )
@@ -1102,7 +1114,7 @@ const buildPluginsConfig = (
           },
         },
         organizationHooks: {
-          beforeCreateOrganization: async ({ organization: orgData }) => {
+          beforeCreateOrganization: ({ organization: orgData }) => {
             const tenantId = getEffectiveTenantContext(
               deps.tenantContext,
             ).tenantId;
@@ -1112,39 +1124,39 @@ const buildPluginsConfig = (
                 message: 'Organisasi hanya dapat dibuat dalam konteks tenant.',
               });
             }
-            return {
+            return Promise.resolve({
               data: {
                 ...orgData,
                 tenantId,
               },
-            };
+            });
           },
-          beforeAddMember: async ({ member: memberData, organization: org }) => {
+          beforeAddMember: ({ member: memberData, organization: org }) => {
             const tenantId =
               (org as { tenantId?: string | null }).tenantId ??
               getEffectiveTenantContext(deps.tenantContext).tenantId;
-            return {
+            return Promise.resolve({
               data: {
                 ...memberData,
                 tenantId,
               },
-            };
+            });
           },
-          beforeCreateInvitation: async ({
+          beforeCreateInvitation: ({
             invitation: invData,
             organization: org,
           }) => {
             const tenantId =
               (org as { tenantId?: string | null }).tenantId ??
               getEffectiveTenantContext(deps.tenantContext).tenantId;
-            return {
+            return Promise.resolve({
               data: {
                 ...invData,
                 tenantId,
               },
-            };
+            });
           },
-          beforeAcceptInvitation: async ({
+          beforeAcceptInvitation: ({
             invitation: inv,
             user,
             organization: org,
@@ -1170,6 +1182,7 @@ const buildPluginsConfig = (
                   'Undangan organisasi tidak dapat diterima lintas tenant.',
               });
             }
+            return Promise.resolve();
           },
           afterAcceptInvitation: async ({ member, user, organization }) => {
             deps.eventEmitter?.emit('rbac.cache.invalidate', {
@@ -1200,6 +1213,7 @@ const buildPluginsConfig = (
             });
           },
           afterCreateOrganization: async ({ organization }) => {
+            if (deps.database) return;
             const templates = await loadOrganizationRoleTemplates(authDb);
             const orgTenantId =
               (organization as { tenantId?: string | null }).tenantId ??
@@ -1382,14 +1396,10 @@ const buildPluginsConfig = (
               .activeOrganizationId ??
             (
               info.metadata as
-                | { activeOrganizationId?: string | null }
-                | undefined
+                { activeOrganizationId?: string | null } | undefined
             )?.activeOrganizationId ??
-            (
-              info.user as
-                | { activeOrganizationId?: string | null }
-                | undefined
-            )?.activeOrganizationId ??
+            (info.user as { activeOrganizationId?: string | null } | undefined)
+              ?.activeOrganizationId ??
             null;
           return resolveTenantClaimsForUser(
             authDb,
@@ -1407,14 +1417,10 @@ const buildPluginsConfig = (
               .activeOrganizationId ??
             (
               info.metadata as
-                | { activeOrganizationId?: string | null }
-                | undefined
+                { activeOrganizationId?: string | null } | undefined
             )?.activeOrganizationId ??
-            (
-              info.user as
-                | { activeOrganizationId?: string | null }
-                | undefined
-            )?.activeOrganizationId ??
+            (info.user as { activeOrganizationId?: string | null } | undefined)
+              ?.activeOrganizationId ??
             null;
           return resolveTenantClaimsForUser(
             authDb,
@@ -1434,18 +1440,12 @@ const buildPluginsConfig = (
                   }
                 | undefined
             )?.active_organization_id ??
-            (
-              info.jwt as
-                | { activeOrganizationId?: string | null }
-                | undefined
-            )?.activeOrganizationId ??
+            (info.jwt as { activeOrganizationId?: string | null } | undefined)
+              ?.activeOrganizationId ??
             (info as { session?: { activeOrganizationId?: string | null } })
               .session?.activeOrganizationId ??
-            (
-              info.user as
-                | { activeOrganizationId?: string | null }
-                | undefined
-            )?.activeOrganizationId ??
+            (info.user as { activeOrganizationId?: string | null } | undefined)
+              ?.activeOrganizationId ??
             null;
           return resolveTenantClaimsForUser(
             authDb,
@@ -1677,7 +1677,7 @@ export const createAuthInstance = (deps: AuthDependencies) => {
 
   const tenantBaseDomain =
     deps.tenantBaseDomain ||
-    deps.configService.get<string>('TENANT_BASE_DOMAIN') ||
+    deps.configService.get<string>('TENANT_BASE_DOMAIN', { infer: true }) ||
     process.env.TENANT_BASE_DOMAIN ||
     'authcore.local';
   const resolvedBaseUrl = resolveTenantBaseUrl(

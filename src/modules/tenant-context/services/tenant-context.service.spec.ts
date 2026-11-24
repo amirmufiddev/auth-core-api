@@ -15,7 +15,11 @@ import type { ITenantContextRepository } from '../interfaces/tenant-context-repo
 function createInMemoryRepo(): {
   repo: ITenantContextRepository;
   state: {
-    tenants: Array<{ id: string; slug: string; status: 'active' | 'suspended' }>;
+    tenants: Array<{
+      id: string;
+      slug: string;
+      status: 'active' | 'suspended';
+    }>;
     users: Array<{ id: string; tenantId: string | null }>;
     organizations: Array<{
       id: string;
@@ -126,41 +130,44 @@ function createInMemoryRepo(): {
   };
 
   const repo: ITenantContextRepository = {
-    async findTenantStatus(tenantId) {
-      return state.tenants.find((t) => t.id === tenantId)?.status ?? null;
+    findTenantStatus(tenantId) {
+      return Promise.resolve(
+        state.tenants.find((t) => t.id === tenantId)?.status ?? null,
+      );
     },
-    async findUserTenantId(userId) {
+    findUserTenantId(userId) {
       const user = state.users.find((u) => u.id === userId);
-      return user ? { tenantId: user.tenantId } : null;
+      return Promise.resolve(user ? { tenantId: user.tenantId } : null);
     },
-    async findOrganizationById(organizationId) {
-      return (
-        state.organizations.find((o) => o.id === organizationId) ?? null
+    findOrganizationById(organizationId) {
+      return Promise.resolve(
+        state.organizations.find((o) => o.id === organizationId) ?? null,
       );
     },
-    async findMemberInOrganization(organizationId, userId) {
+    findMemberInOrganization(organizationId, userId) {
       const m = state.members.find(
-        (row) =>
-          row.organizationId === organizationId && row.userId === userId,
+        (row) => row.organizationId === organizationId && row.userId === userId,
       );
-      return m ? { role: m.role, tenantId: m.tenantId } : null;
+      return Promise.resolve(m ? { role: m.role, tenantId: m.tenantId } : null);
     },
-    async findOrganizationRolePermissions(organizationId, role) {
+    findOrganizationRolePermissions(organizationId, role) {
       const r = state.organizationRoles.find(
         (row) => row.organizationId === organizationId && row.role === role,
       );
-      return r?.permission ?? null;
+      return Promise.resolve(r?.permission ?? null);
     },
-    async findApiKeyByHashedKey(hashedKey) {
-      return state.apiKeys.find((k) => k.key === hashedKey) ?? null;
+    findApiKeyByHashedKey(hashedKey) {
+      return Promise.resolve(
+        state.apiKeys.find((k) => k.key === hashedKey) ?? null,
+      );
     },
-    async listOrganizationsForTenant(params) {
+    listOrganizationsForTenant(params) {
       const filtered = state.organizations.filter(
         (o) => o.tenantId === params.tenantId,
       );
-      return { items: filtered, total: filtered.length };
+      return Promise.resolve({ items: filtered, total: filtered.length });
     },
-    async listOrganizationMembers(params) {
+    listOrganizationMembers(params) {
       const filtered = state.members
         .filter((m) => m.organizationId === params.organizationId)
         .map((m) => ({
@@ -171,7 +178,7 @@ function createInMemoryRepo(): {
           userName: m.userId,
           userEmail: `${m.userId}@example.com`,
         }));
-      return { items: filtered, total: filtered.length };
+      return Promise.resolve({ items: filtered, total: filtered.length });
     },
   };
 
@@ -179,7 +186,7 @@ function createInMemoryRepo(): {
 }
 
 describe('TenantContextService & POS Integration', () => {
-  it('getSessionContext untuk Asep mengembalikan context lengkap dan merefleksikan pencabutan role secara real-time', async () => {
+  it('should return full context for Asep and reflect role revocation in real time', async () => {
     const { repo, state } = createInMemoryRepo();
     const service = new TenantContextService(repo);
 
@@ -228,7 +235,7 @@ describe('TenantContextService & POS Integration', () => {
     expect(revoked.orgPermissions).toEqual([]);
   });
 
-  it('menolak activeOrganizationId spoofing lintas tenant dengan 403 ForbiddenException', async () => {
+  it('should reject cross-tenant activeOrganizationId spoofing with 403 ForbiddenException', async () => {
     const { repo } = createInMemoryRepo();
     const service = new TenantContextService(repo);
 
@@ -241,7 +248,7 @@ describe('TenantContextService & POS Integration', () => {
     ).rejects.toThrow(ForbiddenException);
   });
 
-  it('konfigurasi JWT Access Token untuk tenant membatasi TTL <= 900 detik (5-15 menit)', () => {
+  it('should clamp tenant JWT Access Token TTL to <= 900 seconds (5-15 minutes)', () => {
     expect(resolveClampedAccessTokenTtlSeconds(3600)).toBe(900);
     expect(resolveClampedAccessTokenTtlSeconds(600)).toBe(600);
     expect(resolveClampedAccessTokenTtlSeconds(60)).toBe(300);
@@ -260,34 +267,38 @@ describe('TenantContextService & POS Integration', () => {
     ).toBeLessThanOrEqual(900);
   });
 
-  it('Tenant API Key milik ten_bima ditolak (403) saat memanggil endpoint pada konteks ten_pos', async () => {
+  it('should reject ten_bima Tenant API Key with 403 when calling ten_pos context endpoint', async () => {
     const { repo } = createInMemoryRepo();
     const service = new TenantContextService(repo);
 
     const mockAuthRegistry = {
-      getForContext: async (ctx: { tenantId: string | null }) => ({
-        api: {
-          verifyApiKey: async ({ body }: { body: { key: string } }) => {
-            if (ctx.tenantId === 'ten_pos' && body.key === 'ak_live_pos_secret') {
-              return {
-                valid: true,
-                error: null,
-                key: {
-                  id: 'key_pos_1',
-                  referenceId: 'usr_asep',
-                  tenantId: 'ten_pos',
-                },
-              };
-            }
-            return {
-              valid: false,
-              error: { code: 'KEY_NOT_FOUND', message: 'Not found' },
-              key: null,
-            };
+      getForContext: (ctx: { tenantId: string | null }) =>
+        Promise.resolve({
+          api: {
+            verifyApiKey: ({ body }: { body: { key: string } }) => {
+              if (
+                ctx.tenantId === 'ten_pos' &&
+                body.key === 'ak_live_pos_secret'
+              ) {
+                return Promise.resolve({
+                  valid: true,
+                  error: null,
+                  key: {
+                    id: 'key_pos_1',
+                    referenceId: 'usr_asep',
+                    tenantId: 'ten_pos',
+                  },
+                });
+              }
+              return Promise.resolve({
+                valid: false,
+                error: { code: 'KEY_NOT_FOUND', message: 'Not found' },
+                key: null,
+              });
+            },
+            getSession: () => Promise.resolve(null),
           },
-          getSession: async () => null,
-        },
-      }),
+        }),
     };
 
     // Override findApiKeyByHashedKey to match sha256(rawKey) for ten_bima
@@ -297,18 +308,18 @@ describe('TenantContextService & POS Integration', () => {
       .createHash('sha256')
       .update(bimaRawKey)
       .digest('base64url');
-    repo.findApiKeyByHashedKey = async (hashed) => {
+    repo.findApiKeyByHashedKey = (hashed) => {
       if (hashed === bimaHash) {
-        return {
+        return Promise.resolve({
           id: 'key_bima_1',
           tenantId: 'ten_bima',
           referenceId: 'usr_bima',
           key: bimaHash,
           enabled: true,
           expiresAt: null,
-        };
+        });
       }
-      return null;
+      return Promise.resolve(null);
     };
 
     const guard = new TenantApiOrBearerGuard(
@@ -336,9 +347,7 @@ describe('TenantContextService & POS Integration', () => {
           source: 'subdomain',
         },
         () =>
-          guard.canActivate(
-            makeExecutionContext({ 'x-api-key': bimaRawKey }),
-          ),
+          guard.canActivate(makeExecutionContext({ 'x-api-key': bimaRawKey })),
       ),
     ).rejects.toThrow(ForbiddenException);
 
@@ -373,7 +382,7 @@ describe('TenantContextService & POS Integration', () => {
     ).rejects.toThrow(UnauthorizedException);
   });
 
-  it('Bearer user ditolak (403) saat memanggil getOrganization / listOrganizationMembers untuk org yang bukan anggotanya', async () => {
+  it('should reject bearer user with 403 on getOrganization / listOrganizationMembers for non-member org', async () => {
     const { repo, state } = createInMemoryRepo();
     state.organizations.push({
       id: 'org_other_pos',
@@ -424,7 +433,7 @@ describe('TenantContextService & POS Integration', () => {
     expect(otherOrgViaApiKey.id).toBe('org_other_pos');
   });
 
-  it('TenantApiOrBearerGuard memverifikasi tenantId via findApiKeyRecord saat verifyResult.key.tenantId undefined', async () => {
+  it('should verify tenantId via findApiKeyRecord when verifyResult.key.tenantId is undefined', async () => {
     const { repo } = createInMemoryRepo();
     const service = new TenantContextService(repo);
     const crypto = await import('node:crypto');
@@ -441,46 +450,48 @@ describe('TenantContextService & POS Integration', () => {
       .update(bimaRawKey)
       .digest('base64url');
 
-    repo.findApiKeyByHashedKey = async (hashed) => {
+    repo.findApiKeyByHashedKey = (hashed) => {
       if (hashed === posHash) {
-        return {
+        return Promise.resolve({
           id: 'key_pos_undef',
           tenantId: 'ten_pos',
           referenceId: 'usr_asep',
           key: posHash,
           enabled: true,
           expiresAt: null,
-        };
+        });
       }
       if (hashed === bimaHash) {
-        return {
+        return Promise.resolve({
           id: 'key_bima_undef',
           tenantId: 'ten_bima',
           referenceId: 'usr_bima',
           key: bimaHash,
           enabled: true,
           expiresAt: null,
-        };
+        });
       }
-      return null;
+      return Promise.resolve(null);
     };
 
     const mockAuthRegistry = {
-      getForContext: async () => ({
-        api: {
-          verifyApiKey: async ({ body }: { body: { key: string } }) => ({
-            valid: true,
-            error: null,
-            key: {
-              id:
-                body.key === posRawKey ? 'key_pos_undef' : 'key_bima_undef',
-              referenceId: body.key === posRawKey ? 'usr_asep' : 'usr_bima',
-              tenantId: undefined,
-            },
-          }),
-          getSession: async () => null,
-        },
-      }),
+      getForContext: () =>
+        Promise.resolve({
+          api: {
+            verifyApiKey: ({ body }: { body: { key: string } }) =>
+              Promise.resolve({
+                valid: true,
+                error: null,
+                key: {
+                  id:
+                    body.key === posRawKey ? 'key_pos_undef' : 'key_bima_undef',
+                  referenceId: body.key === posRawKey ? 'usr_asep' : 'usr_bima',
+                  tenantId: undefined,
+                },
+              }),
+            getSession: () => Promise.resolve(null),
+          },
+        }),
     };
 
     const guard = new TenantApiOrBearerGuard(
@@ -508,9 +519,7 @@ describe('TenantContextService & POS Integration', () => {
           source: 'subdomain',
         },
         () =>
-          guard.canActivate(
-            makeExecutionContext({ 'x-api-key': bimaRawKey }),
-          ),
+          guard.canActivate(makeExecutionContext({ 'x-api-key': bimaRawKey })),
       ),
     ).rejects.toThrow(ForbiddenException);
 
@@ -523,8 +532,7 @@ describe('TenantContextService & POS Integration', () => {
         configVersion: 1,
         source: 'subdomain',
       },
-      () =>
-        guard.canActivate(makeExecutionContext({ 'x-api-key': posRawKey })),
+      () => guard.canActivate(makeExecutionContext({ 'x-api-key': posRawKey })),
     );
     expect(allowed).toBe(true);
   });

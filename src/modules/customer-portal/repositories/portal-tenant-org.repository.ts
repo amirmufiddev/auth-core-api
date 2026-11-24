@@ -19,7 +19,9 @@ export class PortalTenantOrgRepository implements IPortalTenantOrgRepository {
   async listByTenantPaginated(
     query: ListTenantOrgsQuery,
   ): Promise<{ items: PortalTenantOrgRow[]; total: number }> {
-    const conditions: SQL[] = [eq(schema.organization.tenantId, query.tenantId)];
+    const conditions: SQL[] = [
+      eq(schema.organization.tenantId, query.tenantId),
+    ];
     const trimmedSearch = query.search?.trim();
 
     if (trimmedSearch) {

@@ -1,10 +1,4 @@
-import {
-  Controller,
-  Get,
-  Param,
-  Query,
-  VERSION_NEUTRAL,
-} from '@nestjs/common';
+import { Controller, Get, Param, Query, VERSION_NEUTRAL } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { RequirePlatformPermission } from '@/modules/rbac';
 import { TenantService } from '@/modules/tenant';

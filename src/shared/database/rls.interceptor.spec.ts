@@ -64,7 +64,9 @@ describe('RlsInterceptor', () => {
   });
 
   it('should populate both tenantId and organizationId in RlsContext when organization belongs to session tenant', async () => {
-    const tenantScopedInterceptor = new RlsInterceptor(async () => 'tenant-1');
+    const tenantScopedInterceptor = new RlsInterceptor(() =>
+      Promise.resolve('tenant-1'),
+    );
     const mockContext = {
       switchToHttp: () => ({
         getRequest: () => ({
@@ -100,7 +102,9 @@ describe('RlsInterceptor', () => {
   });
 
   it('should reject with 403 CROSS_TENANT_ORGANIZATION when activeOrganizationId belongs to another tenant', async () => {
-    const tenantScopedInterceptor = new RlsInterceptor(async () => 'tenant-b');
+    const tenantScopedInterceptor = new RlsInterceptor(() =>
+      Promise.resolve('tenant-b'),
+    );
     const mockContext = {
       switchToHttp: () => ({
         getRequest: () => ({

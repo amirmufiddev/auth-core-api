@@ -47,10 +47,7 @@ export class PortalTenantUserRepository implements IPortalTenantUserRepository {
         .orderBy(desc(schema.user.createdAt))
         .limit(pageSize)
         .offset(offset),
-      this.db
-        .select({ total: count() })
-        .from(schema.user)
-        .where(whereClause),
+      this.db.select({ total: count() }).from(schema.user).where(whereClause),
     ]);
 
     return {

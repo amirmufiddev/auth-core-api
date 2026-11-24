@@ -19,7 +19,7 @@ function createCryptoService(): CryptoService {
 }
 
 describe('FeatureResolutionService & FeatureCatalogService (Review Focus #3)', () => {
-  it('rejects enabling a feature outside tierId with 403 FEATURE_TIER_LOCKED and disabled/coming_soon with 400 FEATURE_UNAVAILABLE', async () => {
+  it('should reject enabling a feature outside tierId with 403 FEATURE_TIER_LOCKED and disabled/coming_soon with 400 FEATURE_UNAVAILABLE', async () => {
     const crypto = createCryptoService();
     const features = [
       {
@@ -51,46 +51,53 @@ describe('FeatureResolutionService & FeatureCatalogService (Review Focus #3)', (
     ];
 
     const repo: IFeatureTierRepository = {
-      listFeatures: mock(async () => features),
-      findFeatureByIdOrCode: mock(
-        async (idOrCode: string) =>
+      listFeatures: mock(() => Promise.resolve(features)),
+      findFeatureByIdOrCode: mock((idOrCode: string) =>
+        Promise.resolve(
           features.find((f) => f.code === idOrCode || f.id === idOrCode) ??
-          null,
+            null,
+        ),
       ),
-      updateFeatureStatus: mock(async () => null),
-      listTiersWithFeatures: mock(async () => []),
-      findTierById: mock(async () => ({
-        id: 'tier_free',
-        code: 'free',
-        name: 'Free',
-        description: null,
-        sortOrder: 0,
-        isDefault: true,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      })),
-      getTierFeatureIds: mock(async () => []), // Free tier does NOT include sso
-      replaceTierFeatures: mock(async () => {}),
-      listPlatformFeatureConfigs: mock(async () => []),
-      listTenantFeatureConfigs: mock(async () => []),
-      findTenantFeatureConfig: mock(async () => null),
-      upsertTenantFeatureConfig: mock(async (input) => ({
-        ...input,
-        updatedBy: null,
-        updatedAt: new Date(),
-      })),
-      bumpTenantConfigVersion: mock(async () => 2),
+      updateFeatureStatus: mock(() => Promise.resolve(null)),
+      listTiersWithFeatures: mock(() => Promise.resolve([])),
+      findTierById: mock(() =>
+        Promise.resolve({
+          id: 'tier_free',
+          code: 'free',
+          name: 'Free',
+          description: null,
+          sortOrder: 0,
+          isDefault: true,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        }),
+      ),
+      getTierFeatureIds: mock(() => Promise.resolve([])), // Free tier does NOT include sso
+      replaceTierFeatures: mock(() => Promise.resolve()),
+      listPlatformFeatureConfigs: mock(() => Promise.resolve([])),
+      listTenantFeatureConfigs: mock(() => Promise.resolve([])),
+      findTenantFeatureConfig: mock(() => Promise.resolve(null)),
+      upsertTenantFeatureConfig: mock((input) =>
+        Promise.resolve({
+          ...input,
+          updatedBy: null,
+          updatedAt: new Date(),
+        }),
+      ),
+      bumpTenantConfigVersion: mock(() => Promise.resolve(2)),
     };
 
     const tenantService = {
-      getTenantById: mock(async () => ({
-        id: 'ten_free',
-        tierId: 'tier_free',
-        configVersion: 1,
-      })),
+      getTenantById: mock(() =>
+        Promise.resolve({
+          id: 'ten_free',
+          tierId: 'tier_free',
+          configVersion: 1,
+        }),
+      ),
     } as any;
     const registry = {
-      invalidateTenant: mock(async () => {}),
+      invalidateTenant: mock(() => Promise.resolve()),
     } as any;
 
     const service = new TenantFeatureConfigService(
@@ -129,7 +136,7 @@ describe('FeatureResolutionService & FeatureCatalogService (Review Focus #3)', (
     expect((statusErr as BusinessError).code).toBe('FEATURE_UNAVAILABLE');
   });
 
-  it('calls AuthRuntimeRegistry.invalidateCatalog() on feature status or tier matrix mutation without bulk updating tenant rows', async () => {
+  it('should call AuthRuntimeRegistry.invalidateCatalog() on feature status or tier matrix mutation without bulk updating tenant rows', async () => {
     const ssoFeature = {
       id: 'feat-sso-uuid',
       code: 'sso',
@@ -145,37 +152,43 @@ describe('FeatureResolutionService & FeatureCatalogService (Review Focus #3)', (
     };
 
     const repo: IFeatureTierRepository = {
-      listFeatures: mock(async () => [ssoFeature]),
-      findFeatureByIdOrCode: mock(async () => ssoFeature),
-      updateFeatureStatus: mock(async (_id, status) => ({
-        ...ssoFeature,
-        status,
-      })),
-      listTiersWithFeatures: mock(async () => []),
-      findTierById: mock(async () => ({
-        id: 'tier_business',
-        code: 'business',
-        name: 'Business',
-        description: null,
-        sortOrder: 2,
-        isDefault: false,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      })),
-      getTierFeatureIds: mock(async () => ['feat-sso-uuid']),
-      replaceTierFeatures: mock(async () => {}),
-      listPlatformFeatureConfigs: mock(async () => []),
-      listTenantFeatureConfigs: mock(async () => []),
-      findTenantFeatureConfig: mock(async () => null),
-      upsertTenantFeatureConfig: mock(async (input) => ({
-        ...input,
-        updatedBy: null,
-        updatedAt: new Date(),
-      })),
-      bumpTenantConfigVersion: mock(async () => 2),
+      listFeatures: mock(() => Promise.resolve([ssoFeature])),
+      findFeatureByIdOrCode: mock(() => Promise.resolve(ssoFeature)),
+      updateFeatureStatus: mock((_id, status) =>
+        Promise.resolve({
+          ...ssoFeature,
+          status,
+        }),
+      ),
+      listTiersWithFeatures: mock(() => Promise.resolve([])),
+      findTierById: mock(() =>
+        Promise.resolve({
+          id: 'tier_business',
+          code: 'business',
+          name: 'Business',
+          description: null,
+          sortOrder: 2,
+          isDefault: false,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        }),
+      ),
+      getTierFeatureIds: mock(() => Promise.resolve(['feat-sso-uuid'])),
+      replaceTierFeatures: mock(() => Promise.resolve()),
+      listPlatformFeatureConfigs: mock(() => Promise.resolve([])),
+      listTenantFeatureConfigs: mock(() => Promise.resolve([])),
+      findTenantFeatureConfig: mock(() => Promise.resolve(null)),
+      upsertTenantFeatureConfig: mock((input) =>
+        Promise.resolve({
+          ...input,
+          updatedBy: null,
+          updatedAt: new Date(),
+        }),
+      ),
+      bumpTenantConfigVersion: mock(() => Promise.resolve(2)),
     };
 
-    const invalidateCatalog = mock(async () => 5);
+    const invalidateCatalog = mock(() => Promise.resolve(5));
     const registry = { invalidateCatalog } as any;
 
     const catalogService = new FeatureCatalogService(repo, registry);
@@ -189,7 +202,7 @@ describe('FeatureResolutionService & FeatureCatalogService (Review Focus #3)', (
     expect(repo.bumpTenantConfigVersion).not.toHaveBeenCalled();
   });
 
-  it('fails closed on downgrade from Business to Free or operator disable while preserving tenant_auth_feature_config row & secrets for re-upgrade', async () => {
+  it('should fail closed on downgrade from Business to Free or operator disable while preserving tenant_auth_feature_config row & secrets for re-upgrade', async () => {
     const crypto = createCryptoService();
     const encryptedSecret = crypto.encryptSecret('tenant-sso-secret');
 
@@ -207,48 +220,54 @@ describe('FeatureResolutionService & FeatureCatalogService (Review Focus #3)', (
     ];
 
     const repo: IFeatureTierRepository = {
-      listFeatures: mock(async () => [
-        {
-          id: 'feat-sso-uuid',
-          code: 'sso',
-          name: 'Enterprise SSO',
-          description: null,
-          category: 'enterprise',
-          packageName: '@better-auth/sso',
-          status: featureStatus,
-          dependencies: [],
-          availableSetting: [
-            { key: 'clientSecret', label: 'Client Secret', type: 'secret' },
-          ],
-          createdAt: new Date(),
-          updatedAt: new Date(),
-        },
-      ]),
-      findFeatureByIdOrCode: mock(async () => null),
-      updateFeatureStatus: mock(async () => null),
-      listTiersWithFeatures: mock(async () => []),
-      findTierById: mock(async () => null),
-      getTierFeatureIds: mock(async (tierId: string) =>
-        tierId === 'tier_business' ? ['feat-sso-uuid'] : [],
+      listFeatures: mock(() =>
+        Promise.resolve([
+          {
+            id: 'feat-sso-uuid',
+            code: 'sso',
+            name: 'Enterprise SSO',
+            description: null,
+            category: 'enterprise',
+            packageName: '@better-auth/sso',
+            status: featureStatus,
+            dependencies: [],
+            availableSetting: [
+              { key: 'clientSecret', label: 'Client Secret', type: 'secret' },
+            ],
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          },
+        ]),
       ),
-      replaceTierFeatures: mock(async () => {}),
-      listPlatformFeatureConfigs: mock(async () => []),
-      listTenantFeatureConfigs: mock(async () => tenantRows),
-      findTenantFeatureConfig: mock(async () => tenantRows[0]),
-      upsertTenantFeatureConfig: mock(async (input) => ({
-        ...input,
-        updatedBy: null,
-        updatedAt: new Date(),
-      })),
-      bumpTenantConfigVersion: mock(async () => 2),
+      findFeatureByIdOrCode: mock(() => Promise.resolve(null)),
+      updateFeatureStatus: mock(() => Promise.resolve(null)),
+      listTiersWithFeatures: mock(() => Promise.resolve([])),
+      findTierById: mock(() => Promise.resolve(null)),
+      getTierFeatureIds: mock((tierId: string) =>
+        Promise.resolve(tierId === 'tier_business' ? ['feat-sso-uuid'] : []),
+      ),
+      replaceTierFeatures: mock(() => Promise.resolve()),
+      listPlatformFeatureConfigs: mock(() => Promise.resolve([])),
+      listTenantFeatureConfigs: mock(() => Promise.resolve(tenantRows)),
+      findTenantFeatureConfig: mock(() => Promise.resolve(tenantRows[0])),
+      upsertTenantFeatureConfig: mock((input) =>
+        Promise.resolve({
+          ...input,
+          updatedBy: null,
+          updatedAt: new Date(),
+        }),
+      ),
+      bumpTenantConfigVersion: mock(() => Promise.resolve(2)),
     };
 
     const tenantService = {
-      getTenantById: mock(async () => ({
-        id: 'ten_1',
-        tierId: 'tier_business',
-        configVersion: 1,
-      })),
+      getTenantById: mock(() =>
+        Promise.resolve({
+          id: 'ten_1',
+          tierId: 'tier_business',
+          configVersion: 1,
+        }),
+      ),
     } as any;
 
     const resolution = new FeatureResolutionService(

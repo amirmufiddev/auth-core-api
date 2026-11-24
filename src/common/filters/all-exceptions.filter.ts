@@ -34,6 +34,12 @@ export class AllExceptionsFilter implements ExceptionFilter {
       const res = exception.getResponse();
       message = typeof res === 'string' ? res : (res as any).message || res;
       errorName = exception.name;
+      code =
+        typeof res === 'object' &&
+        res !== null &&
+        typeof (res as any).code === 'string'
+          ? (res as any).code
+          : undefined;
       context =
         typeof res === 'object' && res !== null
           ? (res as any).context

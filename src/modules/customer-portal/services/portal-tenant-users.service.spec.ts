@@ -65,12 +65,12 @@ describe('PortalTenantUsersService (Strict Tenant Isolation)', () => {
       }),
     ];
 
-    const listByTenantPaginated = mock(async (query: ListTenantUsersQuery) => {
+    const listByTenantPaginated = mock((query: ListTenantUsersQuery) => {
       const filtered = allUsers.filter((u) => u.tenantId === query.tenantId);
-      return {
+      return Promise.resolve({
         items: filtered,
         total: filtered.length,
-      };
+      });
     });
 
     const repo: IPortalTenantUserRepository = {
@@ -97,17 +97,19 @@ describe('PortalTenantUsersService (Strict Tenant Isolation)', () => {
   });
 
   it('should clamp pagination and forward trimmed search query to repository', async () => {
-    const listByTenantPaginated = mock(async (_query: ListTenantUsersQuery) => ({
-      items: [
-        makeUserRow({
-          id: 'usr_amir_1',
-          tenantId: 'ten_amir',
-          name: 'Siti Rahma',
-          email: 'siti@amir.test',
-        }),
-      ],
-      total: 1,
-    }));
+    const listByTenantPaginated = mock((_query: ListTenantUsersQuery) =>
+      Promise.resolve({
+        items: [
+          makeUserRow({
+            id: 'usr_amir_1',
+            tenantId: 'ten_amir',
+            name: 'Siti Rahma',
+            email: 'siti@amir.test',
+          }),
+        ],
+        total: 1,
+      }),
+    );
 
     const service = new PortalTenantUsersService({ listByTenantPaginated });
     const result = await service.listTenantUsers('ten_amir', {
@@ -146,15 +148,17 @@ describe('PortalTenantUsersService (Strict Tenant Isolation)', () => {
         captured.limitArg = n;
         return selectChain;
       }),
-      offset: mock(async (n: number) => {
+      offset: mock((n: number) => {
         captured.offsetArg = n;
-        return [makeUserRow({ id: 'usr_amir_1', tenantId: 'ten_amir' })];
+        return Promise.resolve([
+          makeUserRow({ id: 'usr_amir_1', tenantId: 'ten_amir' }),
+        ]);
       }),
     };
 
     const countChain = {
       from: mock(() => countChain),
-      where: mock(async () => [{ total: 1 }]),
+      where: mock(() => Promise.resolve([{ total: 1 }])),
     };
 
     let callIdx = 0;

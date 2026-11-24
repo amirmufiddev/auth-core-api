@@ -95,8 +95,7 @@ export class SocialBridgeController {
     const cookieConfig = resolveTenantCookieConfig(ctx);
     const cookieName = `${cookieConfig.cookiePrefix}.session_token`;
     const isSecure =
-      req.protocol === 'https' ||
-      req.headers['x-forwarded-proto'] === 'https';
+      req.protocol === 'https' || req.headers['x-forwarded-proto'] === 'https';
 
     const cookieParts = [
       `${cookieName}=${encodeURIComponent(sessionToken)}`,

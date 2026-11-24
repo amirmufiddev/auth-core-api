@@ -63,7 +63,9 @@ export class AuthRuntimeRegistry implements OnModuleInit, OnModuleDestroy {
     private readonly logger?: AppLoggerService,
   ) {
     const configuredMax = Number(
-      this.configService?.get<number>('AUTH_RUNTIME_LRU_MAX') ??
+      this.configService?.get<number>('AUTH_RUNTIME_LRU_MAX', {
+        infer: true,
+      }) ??
         process.env.AUTH_RUNTIME_LRU_MAX ??
         DEFAULT_AUTH_RUNTIME_LRU_MAX,
     );
@@ -204,10 +206,7 @@ export class AuthRuntimeRegistry implements OnModuleInit, OnModuleDestroy {
     return buildPromise;
   }
 
-  async invalidateTenant(
-    tenantId: string,
-    _newVersion?: number,
-  ): Promise<void> {
+  invalidateTenant(tenantId: string, _newVersion?: number): Promise<void> {
     const nextEpoch = (this.tenantInvalidationEpoch.get(tenantId) ?? 0) + 1;
     this.tenantInvalidationEpoch.set(tenantId, nextEpoch);
 
@@ -222,6 +221,7 @@ export class AuthRuntimeRegistry implements OnModuleInit, OnModuleDestroy {
         this.inFlightBuilds.delete(key);
       }
     }
+    return Promise.resolve();
   }
 
   async invalidateCatalog(): Promise<number> {

@@ -332,7 +332,9 @@ export class ListPortalTenantUsersQueryDto {
   @Max(100)
   limit?: number;
 
-  @ApiPropertyOptional({ description: 'Cari berdasarkan nama, email, atau username' })
+  @ApiPropertyOptional({
+    description: 'Cari berdasarkan nama, email, atau username',
+  })
   @IsOptional()
   @IsString()
   search?: string;

@@ -21,7 +21,7 @@ const STATE_TTL_MS = 5 * 60 * 1000;
 
 export function getSigningSecret(configService: ConfigService): string {
   const secret =
-    configService.get<string>('BETTER_AUTH_SECRET') ??
+    configService.get<string>('BETTER_AUTH_SECRET', { infer: true }) ??
     process.env.BETTER_AUTH_SECRET;
   if (!secret || secret.trim() === '') {
     throw new InternalServerErrorException(
@@ -33,7 +33,7 @@ export function getSigningSecret(configService: ConfigService): string {
 
 export function getBaseUrl(configService: ConfigService): URL {
   const raw =
-    configService.get<string>('BETTER_AUTH_URL') ??
+    configService.get<string>('BETTER_AUTH_URL', { infer: true }) ??
     process.env.BETTER_AUTH_URL ??
     'http://localhost:2001';
   return new URL(raw);
@@ -43,7 +43,7 @@ export function getCentralCallbackBaseUrl(
   configService: ConfigService,
 ): string {
   const configured =
-    configService.get<string>('SOCIAL_CALLBACK_BASE_URL') ??
+    configService.get<string>('SOCIAL_CALLBACK_BASE_URL', { infer: true }) ??
     process.env.SOCIAL_CALLBACK_BASE_URL;
   if (configured && configured.trim() !== '') {
     return configured.replace(/\/+$/, '');
@@ -61,7 +61,7 @@ export function buildServerReturnOrigin(
     return baseUrl.origin;
   }
   const baseDomain = (
-    configService.get<string>('TENANT_BASE_DOMAIN') ??
+    configService.get<string>('TENANT_BASE_DOMAIN', { infer: true }) ??
     process.env.TENANT_BASE_DOMAIN ??
     'authcore.local'
   )

@@ -22,7 +22,26 @@ export {
   normalizeFeatureDependencies,
   sanitizeFeatureConfigForPublic,
 } from './config/feature-catalog';
-export { type Auth, type AuthDependencies, createAuthInstance } from './auth';
+export {
+  MAX_ACCESS_TOKEN_TTL_SECONDS,
+  MIN_ACCESS_TOKEN_TTL_SECONDS,
+  type Auth,
+  type AuthDependencies,
+  createAuthInstance,
+  resolveClampedAccessTokenTtlSeconds,
+  resolveClampedJwtExpirationTime,
+} from './auth';
+export { SocialBridgeController } from './social-bridge/social-bridge.controller';
+export {
+  SOCIAL_BRIDGE_OAUTH_CLIENT_TOKEN,
+  SOCIAL_BRIDGE_REPOSITORY_TOKEN,
+  SocialBridgeService,
+  type ISocialBridgeOAuthClient,
+  type ISocialBridgeRepository,
+  type SignedSocialStatePayload,
+  type SocialBridgeRedisClient,
+  type SocialExchangePayload,
+} from './social-bridge/social-bridge.service';
 export {
   CROSS_TENANT_OAUTH_CLIENT_ERROR,
   CROSS_TENANT_SESSION_ERROR,
