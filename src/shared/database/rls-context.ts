@@ -8,15 +8,16 @@ export interface RlsStore {
 const storage = new AsyncLocalStorage<RlsStore>();
 
 export class RlsContext {
-  static run<T>(ctx: string | RlsStore, fn: () => T): T {
-    const store: RlsStore =
-      typeof ctx === 'string'
-        ? { tenantId: null, organizationId: ctx }
-        : {
-            tenantId: ctx.tenantId ?? null,
-            organizationId: ctx.organizationId ?? null,
-          };
+  static run<T>(ctx: RlsStore, fn: () => T): T {
+    const store: RlsStore = {
+      tenantId: ctx.tenantId ?? null,
+      organizationId: ctx.organizationId ?? null,
+    };
     return storage.run(store, fn);
+  }
+
+  static hasStore(): boolean {
+    return storage.getStore() !== undefined;
   }
 
   static getCurrentTenantId(): string | null {

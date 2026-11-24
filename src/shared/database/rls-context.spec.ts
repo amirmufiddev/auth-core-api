@@ -1,30 +1,42 @@
 import { RlsContext } from './rls-context';
 
 describe('RlsContext', () => {
-  it('should return null outside run()', () => {
+  it('should report no store outside run()', () => {
+    expect(RlsContext.hasStore()).toBe(false);
+    expect(RlsContext.getCurrentTenantId()).toBeNull();
     expect(RlsContext.getCurrentOrganizationId()).toBeNull();
   });
 
-  it('should return organizationId inside run()', () => {
-    RlsContext.run('org-123', () => {
-      expect(RlsContext.getCurrentOrganizationId()).toBe('org-123');
+  it('should keep a platform store distinct from a missing store', () => {
+    RlsContext.run({ tenantId: null, organizationId: null }, () => {
+      expect(RlsContext.hasStore()).toBe(true);
+      expect(RlsContext.getCurrentTenantId()).toBeNull();
+      expect(RlsContext.getCurrentOrganizationId()).toBeNull();
     });
+    expect(RlsContext.hasStore()).toBe(false);
   });
 
-  it('should return null after run() completes', () => {
-    RlsContext.run('org-123', () => {
-      expect(RlsContext.getCurrentOrganizationId()).toBe('org-123');
-    });
-    expect(RlsContext.getCurrentOrganizationId()).toBeNull();
+  it('should return both ids inside run()', () => {
+    RlsContext.run(
+      { tenantId: 'ten_1', organizationId: 'org_1' },
+      () => {
+        expect(RlsContext.getCurrentTenantId()).toBe('ten_1');
+        expect(RlsContext.getCurrentOrganizationId()).toBe('org_1');
+      },
+    );
   });
 
-  it('should support nested contexts with different organization ids', () => {
-    RlsContext.run('outer', () => {
-      expect(RlsContext.getCurrentOrganizationId()).toBe('outer');
-      RlsContext.run('inner', () => {
-        expect(RlsContext.getCurrentOrganizationId()).toBe('inner');
-      });
-      expect(RlsContext.getCurrentOrganizationId()).toBe('outer');
+  it('should restore the outer store after a nested run()', () => {
+    RlsContext.run({ tenantId: 'ten_outer', organizationId: 'org_outer' }, () => {
+      RlsContext.run(
+        { tenantId: null, organizationId: 'org_inner' },
+        () => {
+          expect(RlsContext.getCurrentTenantId()).toBeNull();
+          expect(RlsContext.getCurrentOrganizationId()).toBe('org_inner');
+        },
+      );
+      expect(RlsContext.getCurrentTenantId()).toBe('ten_outer');
+      expect(RlsContext.getCurrentOrganizationId()).toBe('org_outer');
     });
   });
 });
