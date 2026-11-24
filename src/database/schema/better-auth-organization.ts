@@ -3,6 +3,7 @@ import {
   text,
   timestamp,
   index,
+  unique,
   uniqueIndex,
 } from 'drizzle-orm/pg-core';
 import { tenant } from './tenant';
@@ -30,10 +31,7 @@ export const organization = pgTable(
     index('idx_organization_tenant_id').on(table.tenantId),
     index('idx_organization_slug').on(table.slug),
     uniqueIndex('uq_organization_tenant_slug').on(table.tenantId, table.slug),
-    uniqueIndex('uq_organization_id_tenant_scope').on(
-      table.id,
-      table.tenantScope,
-    ),
+    unique('uq_organization_id_tenant_scope').on(table.id, table.tenantScope),
     tenantIdNotBlank('ck_organization_tenant_id_not_blank', table.tenantId),
   ],
 );

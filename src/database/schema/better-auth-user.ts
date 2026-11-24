@@ -5,6 +5,7 @@ import {
   timestamp,
   boolean,
   index,
+  unique,
   uniqueIndex,
   type AnyPgColumn,
 } from 'drizzle-orm/pg-core';
@@ -74,7 +75,7 @@ export const user = pgTable(
       .where(
         sql`${table.tenantId} IS NOT NULL AND ${table.phoneNumber} IS NOT NULL`,
       ),
-    uniqueIndex('uq_user_id_tenant_scope').on(table.id, table.tenantScope),
+    unique('uq_user_id_tenant_scope').on(table.id, table.tenantScope),
     tenantIdNotBlank('ck_user_tenant_id_not_blank', table.tenantId),
   ],
 );
