@@ -172,6 +172,26 @@ describe('CustomerPortalModule (TenantOwnerGuard & CustomerPortalService)', () =
       expect(tenantService.getTenantById).not.toHaveBeenCalled();
     });
 
+    it('should reject when the session claims tenantId null but the user row is a tenant user', async () => {
+      const tenantService = {
+        getTenantById: mock(() => Promise.resolve(makeTenantRow())),
+      } as any;
+      const guard = new TenantOwnerGuard(
+        tenantService,
+        createDbMock([{ tenantId: 'ten_1', role: 'admin' }]),
+      );
+
+      await expect(
+        guard.canActivate(
+          createExecutionContext(
+            { user: { id: 'usr_owner', tenantId: null, role: 'admin' } },
+            { tenantId: 'ten_1' },
+          ),
+        ),
+      ).rejects.toThrow(ForbiddenException);
+      expect(tenantService.getTenantById).not.toHaveBeenCalled();
+    });
+
     it('should fail closed when session.user.tenantId is undefined and DB user has tenantId or is missing', async () => {
       const tenantService = {
         getTenantById: mock(() => Promise.resolve(makeTenantRow())),
@@ -229,7 +249,10 @@ describe('CustomerPortalModule (TenantOwnerGuard & CustomerPortalService)', () =
           Promise.resolve(makeTenantRow({ ownerUserId: 'usr_other_owner' })),
         ),
       } as any;
-      const guard = new TenantOwnerGuard(tenantService, createDbMock([]));
+      const guard = new TenantOwnerGuard(
+        tenantService,
+        createDbMock([{ tenantId: null }]),
+      );
 
       const ctx = createExecutionContext(
         { user: { id: 'usr_owner', tenantId: null } },
@@ -243,7 +266,10 @@ describe('CustomerPortalModule (TenantOwnerGuard & CustomerPortalService)', () =
       const tenantService = {
         getTenantById: mock(() => Promise.resolve(makeTenantRow())),
       } as any;
-      const guard = new TenantOwnerGuard(tenantService, createDbMock([]));
+      const guard = new TenantOwnerGuard(
+        tenantService,
+        createDbMock([{ tenantId: null }]),
+      );
 
       const ctx = createExecutionContext({
         user: { id: 'usr_owner', tenantId: null },

@@ -38,7 +38,11 @@ describe('PlatformPermissionGuard', () => {
     }) as any;
 
   const makeTableAwareDbMock = (opts: {
-    userRows: Array<{ tenantId: string | null }>;
+    userRows: Array<{
+      tenantId: string | null;
+      role?: string | null;
+      id?: string;
+    }>;
     roleRows: Array<{ slug: string; permissions: Record<string, string[]> }>;
   }) =>
     ({
@@ -121,21 +125,64 @@ describe('PlatformPermissionGuard', () => {
     expect(db.select).not.toHaveBeenCalled();
   });
 
+  it('should reject a session that claims tenantId null when the user row is a tenant admin', async () => {
+    class DummyController {
+      @RequirePlatformPermission('auditLog:read')
+      listAuditLogs() {}
+    }
+
+    const queried: unknown[] = [];
+    const db = {
+      select: mock(() => ({
+        from: mock((table: unknown) => {
+          queried.push(table);
+          const rows =
+            table === schema.user
+              ? [{ tenantId: 'ten_acme', role: 'admin' }]
+              : [{ slug: 'admin', permissions: { auditLog: ['read'] } }];
+          return {
+            where: mock(() => ({
+              limit: mock(() => Promise.resolve(rows.slice(0, 1))),
+              then: (resolve: (value: typeof rows) => unknown) =>
+                Promise.resolve(rows).then(resolve),
+            })),
+          };
+        }),
+      })),
+    } as any;
+
+    const guard = new PlatformPermissionGuard(new Reflector(), db);
+    const ctx = createExecutionContext(DummyController.prototype.listAuditLogs, {
+      user: {
+        id: 'usr_tenant_admin',
+        role: 'admin',
+        tenantId: null,
+      },
+    });
+
+    await expect(guard.canActivate(ctx)).rejects.toThrow(ForbiddenException);
+    expect(queried).toContain(schema.user);
+    expect(queried).not.toContain(schema.authCoreRole);
+  });
+
   it('should allow auditor with auditLog:read on @RequirePlatformPermission("auditLog:read")', async () => {
     class DummyController {
       @RequirePlatformPermission('auditLog:read')
       listAuditLogs() {}
     }
 
-    const db = makeSimpleDbMock([
-      {
-        slug: 'auditor',
-        permissions: {
-          user: ['read'],
-          auditLog: ['read', 'export'],
+    const db = makeTableAwareDbMock({
+      userRows: [{ tenantId: null, role: 'auditor' }],
+      roleRows: [
+        {
+          slug: 'auditor',
+          permissions: {
+            user: ['read'],
+            auditLog: ['read', 'export'],
+          },
         },
-      },
-    ]);
+      ],
+    });
     const guard = new PlatformPermissionGuard(new Reflector(), db);
 
     const ctx = createExecutionContext(
@@ -159,15 +206,18 @@ describe('PlatformPermissionGuard', () => {
       deleteUser() {}
     }
 
-    const db = makeSimpleDbMock([
-      {
-        slug: 'auditor',
-        permissions: {
-          user: ['read'],
-          auditLog: ['read', 'export'],
+    const db = makeTableAwareDbMock({
+      userRows: [{ tenantId: null, role: 'auditor' }],
+      roleRows: [
+        {
+          slug: 'auditor',
+          permissions: {
+            user: ['read'],
+            auditLog: ['read', 'export'],
+          },
         },
-      },
-    ]);
+      ],
+    });
     const guard = new PlatformPermissionGuard(new Reflector(), db);
 
     const ctx = createExecutionContext(DummyController.prototype.deleteUser, {
@@ -190,7 +240,10 @@ describe('PlatformPermissionGuard', () => {
 
     const guardNoRole = new PlatformPermissionGuard(
       new Reflector(),
-      makeSimpleDbMock([]),
+      makeTableAwareDbMock({
+        userRows: [{ tenantId: null, role: null }],
+        roleRows: [],
+      }),
     );
     await expect(
       guardNoRole.canActivate(
@@ -200,8 +253,15 @@ describe('PlatformPermissionGuard', () => {
       ),
     ).rejects.toThrow(ForbiddenException);
 
+    const guardUnknownRole = new PlatformPermissionGuard(
+      new Reflector(),
+      makeTableAwareDbMock({
+        userRows: [{ tenantId: null, role: 'unknown_role' }],
+        roleRows: [],
+      }),
+    );
     await expect(
-      guardNoRole.canActivate(
+      guardUnknownRole.canActivate(
         createExecutionContext(DummyController.prototype.listAuditLogs, {
           user: { id: 'u1', role: 'unknown_role', tenantId: null },
         }),
@@ -215,10 +275,13 @@ describe('PlatformPermissionGuard', () => {
       exportAuditLogs() {}
     }
 
-    const db = makeSimpleDbMock([
-      { slug: 'user', permissions: {} },
-      { slug: 'auditor', permissions: { auditLog: ['read', 'export'] } },
-    ]);
+    const db = makeTableAwareDbMock({
+      userRows: [{ tenantId: null, role: 'user, auditor' }],
+      roleRows: [
+        { slug: 'user', permissions: {} },
+        { slug: 'auditor', permissions: { auditLog: ['read', 'export'] } },
+      ],
+    });
     const guard = new PlatformPermissionGuard(new Reflector(), db);
 
     const ctx = createExecutionContext(
@@ -296,7 +359,7 @@ describe('PlatformPermissionGuard', () => {
           },
         }),
       ),
-    ).rejects.toThrow(ForbiddenException);
+    ).rejects.toThrow(UnauthorizedException);
   });
 
   it('should allow access when session.user.tenantId is undefined but DB user has tenantId === null and required permission', async () => {
@@ -306,7 +369,7 @@ describe('PlatformPermissionGuard', () => {
     }
 
     const db = makeTableAwareDbMock({
-      userRows: [{ tenantId: null }],
+      userRows: [{ tenantId: null, role: 'auditor' }],
       roleRows: [
         {
           slug: 'auditor',

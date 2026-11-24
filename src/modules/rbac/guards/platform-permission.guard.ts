@@ -11,6 +11,7 @@ import { eq, inArray } from 'drizzle-orm';
 import { NodePgDatabase } from 'drizzle-orm/node-postgres';
 import { DRIZZLE } from '@/database/database.constants';
 import * as schema from '@/database/schema';
+import { assertPlatformAccount } from '../services/platform-account';
 
 export const PLATFORM_PERMISSION_META_KEY = 'platform_permission_meta';
 
@@ -52,32 +53,23 @@ export class PlatformPermissionGuard implements CanActivate {
       throw new UnauthorizedException('Sesi login diperlukan.');
     }
 
-    if (user.tenantId !== null && user.tenantId !== undefined) {
+    if (!user.id) {
+      throw new UnauthorizedException('Sesi login diperlukan.');
+    }
+
+    if (typeof user.tenantId === 'string' && user.tenantId.length > 0) {
       throw new ForbiddenException(
         'Hanya akun platform yang dapat mengakses fitur ini.',
       );
     }
 
-    if (user.tenantId === undefined) {
-      if (!user.id) {
-        throw new ForbiddenException(
-          'Hanya akun platform yang dapat mengakses fitur ini.',
-        );
-      }
-      const [dbUser] = await this.db
-        .select({ tenantId: schema.user.tenantId })
-        .from(schema.user)
-        .where(eq(schema.user.id, user.id))
-        .limit(1);
+    const platformUser = await assertPlatformAccount(
+      this.db,
+      user.id,
+      'Hanya akun platform yang dapat mengakses fitur ini.',
+    );
 
-      if (!dbUser || dbUser.tenantId !== null) {
-        throw new ForbiddenException(
-          'Hanya akun platform yang dapat mengakses fitur ini.',
-        );
-      }
-    }
-
-    const roleSlugs = (user.role ?? '')
+    const roleSlugs = (platformUser.role ?? '')
       .split(',')
       .map((slug) => slug.trim())
       .filter(Boolean);

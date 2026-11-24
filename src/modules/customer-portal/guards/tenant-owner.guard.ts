@@ -6,10 +6,10 @@ import {
   Injectable,
   UnauthorizedException,
 } from '@nestjs/common';
-import { eq } from 'drizzle-orm';
 import { NodePgDatabase } from 'drizzle-orm/node-postgres';
 import { DRIZZLE } from '@/database/database.constants';
 import * as schema from '@/database/schema';
+import { assertPlatformAccount } from '@/modules/rbac/services/platform-account';
 import { TenantService } from '@/modules/tenant';
 
 interface PortalSessionRequest {
@@ -39,25 +39,17 @@ export class TenantOwnerGuard implements CanActivate {
       throw new UnauthorizedException('Sesi login diperlukan.');
     }
 
-    if (user.tenantId !== null && user.tenantId !== undefined) {
+    if (typeof user.tenantId === 'string' && user.tenantId.length > 0) {
       throw new ForbiddenException(
         'Hanya akun platform yang dapat mengakses portal pelanggan.',
       );
     }
 
-    if (user.tenantId === undefined) {
-      const [dbUser] = await this.db
-        .select({ tenantId: schema.user.tenantId })
-        .from(schema.user)
-        .where(eq(schema.user.id, user.id))
-        .limit(1);
-
-      if (!dbUser || dbUser.tenantId !== null) {
-        throw new ForbiddenException(
-          'Hanya akun platform yang dapat mengakses portal pelanggan.',
-        );
-      }
-    }
+    await assertPlatformAccount(
+      this.db,
+      user.id,
+      'Hanya akun platform yang dapat mengakses portal pelanggan.',
+    );
 
     const tenantId = request.params?.tenantId;
     if (!tenantId) {
