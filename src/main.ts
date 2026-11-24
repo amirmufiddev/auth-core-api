@@ -15,6 +15,10 @@ import { configureRateLimit } from './bootstrap/rate-limit.config';
 import { configureOpenApi } from './bootstrap/openapi.config';
 import { ConfigService } from '@nestjs/config';
 import { AppLoggerService } from './logger/logger.service';
+import { eq } from 'drizzle-orm';
+import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
+import { DRIZZLE } from './database/database.constants';
+import * as schema from './database/schema';
 import { RlsInterceptor } from './shared/database/rls.interceptor';
 import {
   TenantService,
@@ -63,7 +67,17 @@ async function bootstrap() {
       transform: true,
     }),
   );
-  app.useGlobalInterceptors(new RlsInterceptor());
+  const db = app.get<NodePgDatabase<typeof schema>>(DRIZZLE);
+  app.useGlobalInterceptors(
+    new RlsInterceptor(async (organizationId) => {
+      const [row] = await db
+        .select({ tenantId: schema.organization.tenantId })
+        .from(schema.organization)
+        .where(eq(schema.organization.id, organizationId))
+        .limit(1);
+      return row?.tenantId ?? null;
+    }),
+  );
 
   const tenantService = app.get(TenantService);
   const platformHostsRaw =

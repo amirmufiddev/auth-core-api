@@ -11,6 +11,7 @@ import { PORTAL_TENANT_USER_REPOSITORY_TOKEN } from './interfaces/portal-tenant-
 import { PortalOAuthClientRepository } from './repositories/portal-oauth-client.repository';
 import { PortalTenantUserRepository } from './repositories/portal-tenant-user.repository';
 import { CustomerPortalService } from './services/customer-portal.service';
+import { PortalTenantOrgsService } from './services/portal-tenant-orgs.service';
 import { PortalTenantUsersService } from './services/portal-tenant-users.service';
 
 @Module({
@@ -28,10 +29,12 @@ import { PortalTenantUsersService } from './services/portal-tenant-users.service
     TenantOwnerGuard,
     CustomerPortalService,
     PortalTenantUsersService,
+    PortalTenantOrgsService,
   ],
   exports: [
     CustomerPortalService,
     PortalTenantUsersService,
+    PortalTenantOrgsService,
     PORTAL_OAUTH_CLIENT_REPOSITORY_TOKEN,
     PORTAL_TENANT_USER_REPOSITORY_TOKEN,
   ],

@@ -28,14 +28,17 @@ import {
   ListPortalBillingQueryDto,
   ListPortalOAuthClientsQueryDto,
   ListPortalTenantsQueryDto,
+  ListPortalTenantOrgsQueryDto,
   ListPortalTenantUsersQueryDto,
   PortalBillingSummaryResponseDto,
   PortalOAuthClientResponseDto,
+  PortalTenantOrgResponseDto,
   PortalTenantUserResponseDto,
   UpdatePortalTenantDto,
 } from '../dto/customer-portal.dto';
 import { TenantOwnerGuard } from '../guards/tenant-owner.guard';
 import { CustomerPortalService } from '../services/customer-portal.service';
+import { PortalTenantOrgsService } from '../services/portal-tenant-orgs.service';
 import { PortalTenantUsersService } from '../services/portal-tenant-users.service';
 
 interface PortalSessionContext {
@@ -53,6 +56,7 @@ export class CustomerPortalController {
   constructor(
     private readonly portalService: CustomerPortalService,
     private readonly portalTenantUsersService: PortalTenantUsersService,
+    private readonly portalTenantOrgsService: PortalTenantOrgsService,
   ) {}
 
   private extractUserId(session: PortalSessionContext | null): string {
@@ -187,5 +191,25 @@ export class CustomerPortalController {
     pageSize: number;
   }> {
     return this.portalTenantUsersService.listTenantUsers(tenantId, query);
+  }
+
+  @Get(':tenantId/organizations')
+  @ApiOperation({
+    summary:
+      'Daftar organization terisolasi milik tenant (WHERE organization.tenant_id = :tenantId)',
+  })
+  async listTenantOrganizations(
+    @Param('tenantId') tenantId: string,
+    @Query() query: ListPortalTenantOrgsQueryDto,
+  ): Promise<{
+    items: PortalTenantOrgResponseDto[];
+    total: number;
+    page: number;
+    pageSize: number;
+  }> {
+    return this.portalTenantOrgsService.listTenantOrganizations(
+      tenantId,
+      query,
+    );
   }
 }

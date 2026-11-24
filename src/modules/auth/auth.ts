@@ -747,11 +747,20 @@ const buildPluginsConfig = (
       organization({
         ac,
         allowUserToCreateOrganization: async (user) => {
+          const effectiveTenantId = getEffectiveTenantContext(
+            deps.tenantContext,
+          ).tenantId;
+          if (effectiveTenantId) {
+            return canCreateOrganization([], { tenantId: effectiveTenantId });
+          }
           const rows = await authDb
             .select({ role: schema.member.role })
             .from(schema.member)
             .where(eq(schema.member.userId, user.id));
-          return canCreateOrganization(rows.map((row) => row.role));
+          return canCreateOrganization(
+            rows.map((row) => row.role),
+            { tenantId: null },
+          );
         },
         organizationLimit: Number(
           getSetting(
@@ -782,12 +791,36 @@ const buildPluginsConfig = (
             additionalFields: {
               tenantId: {
                 type: 'string',
-                required: true,
+                required: false,
+                input: false,
+              },
+            },
+          },
+          member: {
+            additionalFields: {
+              tenantId: {
+                type: 'string',
+                required: false,
+                input: false,
+              },
+            },
+          },
+          invitation: {
+            additionalFields: {
+              tenantId: {
+                type: 'string',
+                required: false,
+                input: false,
               },
             },
           },
           organizationRole: {
             additionalFields: {
+              tenantId: {
+                type: 'string',
+                required: false,
+                input: false,
+              },
               permissionScopes: {
                 type: 'string',
                 defaultValue: '{}',
@@ -796,6 +829,75 @@ const buildPluginsConfig = (
           },
         },
         organizationHooks: {
+          beforeCreateOrganization: async ({ organization: orgData }) => {
+            const tenantId = getEffectiveTenantContext(
+              deps.tenantContext,
+            ).tenantId;
+            if (!tenantId) {
+              throw new APIError('FORBIDDEN', {
+                code: 'TENANT_CONTEXT_REQUIRED',
+                message: 'Organisasi hanya dapat dibuat dalam konteks tenant.',
+              });
+            }
+            return {
+              data: {
+                ...orgData,
+                tenantId,
+              },
+            };
+          },
+          beforeAddMember: async ({ member: memberData, organization: org }) => {
+            const tenantId =
+              (org as { tenantId?: string | null }).tenantId ??
+              getEffectiveTenantContext(deps.tenantContext).tenantId;
+            return {
+              data: {
+                ...memberData,
+                tenantId,
+              },
+            };
+          },
+          beforeCreateInvitation: async ({
+            invitation: invData,
+            organization: org,
+          }) => {
+            const tenantId =
+              (org as { tenantId?: string | null }).tenantId ??
+              getEffectiveTenantContext(deps.tenantContext).tenantId;
+            return {
+              data: {
+                ...invData,
+                tenantId,
+              },
+            };
+          },
+          beforeAcceptInvitation: async ({
+            invitation: inv,
+            user,
+            organization: org,
+          }) => {
+            const effectiveTenantId = getEffectiveTenantContext(
+              deps.tenantContext,
+            ).tenantId;
+            const orgTenantId =
+              (org as { tenantId?: string | null }).tenantId ??
+              (inv as { tenantId?: string | null }).tenantId ??
+              null;
+            const userTenantId =
+              (user as { tenantId?: string | null }).tenantId ?? null;
+
+            if (
+              (effectiveTenantId !== null &&
+                orgTenantId !== effectiveTenantId) ||
+              userTenantId !== orgTenantId
+            ) {
+              throw new APIError('FORBIDDEN', {
+                code: 'CROSS_TENANT_INVITATION',
+                message:
+                  'Undangan organisasi tidak dapat diterima lintas tenant.',
+              });
+            }
+          },
           afterAcceptInvitation: async ({ member, user, organization }) => {
             deps.eventEmitter?.emit('rbac.cache.invalidate', {
               orgId: organization.id,
@@ -826,11 +928,16 @@ const buildPluginsConfig = (
           },
           afterCreateOrganization: async ({ organization }) => {
             const templates = await loadOrganizationRoleTemplates(authDb);
+            const orgTenantId =
+              (organization as { tenantId?: string | null }).tenantId ??
+              getEffectiveTenantContext(deps.tenantContext).tenantId ??
+              null;
 
             const roleEntries =
               templates.length > 0
                 ? templates.map((template) => ({
                     id: crypto.randomUUID(),
+                    tenantId: orgTenantId,
                     organizationId: organization.id,
                     role: template.roleName,
                     permission: template.permission,
@@ -840,6 +947,7 @@ const buildPluginsConfig = (
                 : Object.entries(getDefaultRolePermissions()).map(
                     ([role, permissions]) => ({
                       id: crypto.randomUUID(),
+                      tenantId: orgTenantId,
                       organizationId: organization.id,
                       role,
                       permission: JSON.stringify(permissions),

@@ -15,6 +15,7 @@ import {
   type ValidationOptions,
 } from 'class-validator';
 import type {
+  Organization,
   TenantBillingRecordStatus,
   TenantBillingStatus,
   TenantStatus,
@@ -400,6 +401,71 @@ export class PortalTenantUserResponseDto {
       lastLoginMethod: row.lastLoginMethod ?? null,
       createdAt: row.createdAt.toISOString(),
       updatedAt: row.updatedAt.toISOString(),
+    };
+  }
+}
+
+export class ListPortalTenantOrgsQueryDto {
+  @ApiPropertyOptional({ default: 0, minimum: 0 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  page?: number = 0;
+
+  @ApiPropertyOptional({ default: 10, minimum: 1, maximum: 100 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(100)
+  pageSize?: number;
+
+  @ApiPropertyOptional({
+    description: 'Alias untuk pageSize (1-100)',
+    minimum: 1,
+    maximum: 100,
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(100)
+  limit?: number;
+
+  @ApiPropertyOptional({ description: 'Cari berdasarkan nama atau slug' })
+  @IsOptional()
+  @IsString()
+  search?: string;
+}
+
+export class PortalTenantOrgResponseDto {
+  @ApiProperty()
+  id!: string;
+
+  @ApiProperty()
+  tenantId!: string;
+
+  @ApiProperty()
+  name!: string;
+
+  @ApiProperty({ nullable: true })
+  slug!: string | null;
+
+  @ApiProperty({ nullable: true })
+  logo!: string | null;
+
+  @ApiProperty()
+  createdAt!: string;
+
+  static fromEntity(row: Organization): PortalTenantOrgResponseDto {
+    return {
+      id: row.id,
+      tenantId: row.tenantId,
+      name: row.name,
+      slug: row.slug ?? null,
+      logo: row.logo ?? null,
+      createdAt: row.createdAt.toISOString(),
     };
   }
 }

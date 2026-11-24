@@ -14,6 +14,7 @@ import {
 } from '@/modules/tenant';
 
 export const CROSS_TENANT_OAUTH_CLIENT_ERROR = 'CROSS_TENANT_OAUTH_CLIENT';
+export const CROSS_TENANT_ORGANIZATION_ERROR = 'CROSS_TENANT_ORGANIZATION';
 export const TENANT_SUSPENDED_ERROR = 'TENANT_SUSPENDED';
 export const CROSS_TENANT_SESSION_ERROR = 'CROSS_TENANT_SESSION';
 
@@ -88,6 +89,10 @@ const TENANT_WRITE_MODELS = new Set([
   'account',
   'session',
   'verification',
+  'organization',
+  'member',
+  'invitation',
+  'organizationRole',
   'passkey',
   'twoFactor',
   'apikey',
@@ -669,6 +674,34 @@ export function buildTenantIsolationPlugin(
                 token,
                 expectedTenantId,
               );
+            }
+          }),
+        },
+        {
+          matcher: (ctx: { path?: string }) =>
+            ctx.path === '/organization/set-active',
+          handler: createAuthMiddleware(async (ctx) => {
+            const organizationId = (
+              ctx.body as { organizationId?: unknown } | undefined
+            )?.organizationId;
+            if (typeof organizationId !== 'string' || !organizationId.trim()) {
+              return;
+            }
+            const expectedTenantId = getEffectiveTenantContext(
+              options.staticTenantContext,
+              ctx.context,
+            ).tenantId;
+            if (!unscopedAdapter.findOne) return;
+            const org = (await unscopedAdapter.findOne({
+              model: 'organization',
+              where: [{ field: 'id', value: organizationId.trim() }],
+            })) as { tenantId?: string | null } | null;
+            if (org && (org.tenantId ?? null) !== expectedTenantId) {
+              throw new APIError('FORBIDDEN', {
+                code: CROSS_TENANT_ORGANIZATION_ERROR,
+                message:
+                  'Organisasi tidak termasuk dalam tenant yang aktif pada request ini.',
+              });
             }
           }),
         },

@@ -10,10 +10,23 @@ describe('canCreateOrganization', () => {
     expect(canCreateOrganization(['owner'])).toBe(true);
   });
 
-  it('should reject admin, driver, and member without an owner membership', () => {
+  it('should reject admin, driver, and member without an owner membership in platform context', () => {
     expect(canCreateOrganization(['admin'])).toBe(false);
     expect(canCreateOrganization(['driver'])).toBe(false);
     expect(canCreateOrganization(['member'])).toBe(false);
     expect(canCreateOrganization(['admin', 'driver'])).toBe(false);
+    expect(canCreateOrganization(['member'], { tenantId: null })).toBe(false);
+  });
+
+  it('should allow a user with member role to create an organization in tenant context', () => {
+    expect(canCreateOrganization(['member'], { tenantId: 'tenant-1' })).toBe(
+      true,
+    );
+    expect(canCreateOrganization(['driver'], { tenantId: 'tenant-1' })).toBe(
+      true,
+    );
+    expect(canCreateOrganization(['admin'], { tenantId: 'tenant-1' })).toBe(
+      true,
+    );
   });
 });
