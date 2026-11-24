@@ -8,14 +8,20 @@ import {
 } from 'drizzle-orm/pg-core';
 import { user } from './better-auth-user';
 import { tenant } from './tenant';
+import {
+  tenantIdNotBlank,
+  tenantScopeColumn,
+  userTenantScopeFk,
+} from './tenant-scope';
 
 export const twoFactor = pgTable(
   'two_factor',
   {
     id: text('id').primaryKey(),
     tenantId: text('tenant_id').references(() => tenant.id, {
-      onDelete: 'cascade',
+      onDelete: 'restrict',
     }),
+    tenantScope: tenantScopeColumn(),
     secret: text('secret').notNull(),
     backupCodes: text('backup_codes').notNull(),
     userId: text('user_id')
@@ -30,6 +36,14 @@ export const twoFactor = pgTable(
   (table) => [
     index('idx_two_factor_tenant_id').on(table.tenantId),
     index('idx_two_factor_user_id').on(table.userId),
+    tenantIdNotBlank('ck_two_factor_tenant_id_not_blank', table.tenantId),
+    userTenantScopeFk(
+      'fk_two_factor_user_tenant_scope',
+      table.userId,
+      table.tenantScope,
+      user.id,
+      user.tenantScope,
+    ),
   ],
 );
 

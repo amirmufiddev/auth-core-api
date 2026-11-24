@@ -8,14 +8,20 @@ import {
 } from 'drizzle-orm/pg-core';
 import { user } from './better-auth-user';
 import { tenant } from './tenant';
+import {
+  tenantIdNotBlank,
+  tenantScopeColumn,
+  userTenantScopeFk,
+} from './tenant-scope';
 
 export const passkey = pgTable(
   'passkey',
   {
     id: text('id').primaryKey(),
     tenantId: text('tenant_id').references(() => tenant.id, {
-      onDelete: 'cascade',
+      onDelete: 'restrict',
     }),
+    tenantScope: tenantScopeColumn(),
     name: text('name'),
     publicKey: text('public_key').notNull(),
     userId: text('user_id')
@@ -33,6 +39,14 @@ export const passkey = pgTable(
     index('idx_passkey_tenant_id').on(table.tenantId),
     index('idx_passkey_user_id').on(table.userId),
     index('idx_passkey_credential_id').on(table.credentialID),
+    tenantIdNotBlank('ck_passkey_tenant_id_not_blank', table.tenantId),
+    userTenantScopeFk(
+      'fk_passkey_user_tenant_scope',
+      table.userId,
+      table.tenantScope,
+      user.id,
+      user.tenantScope,
+    ),
   ],
 );
 

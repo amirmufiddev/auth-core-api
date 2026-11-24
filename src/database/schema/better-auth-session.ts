@@ -2,14 +2,21 @@ import { pgTable, text, timestamp, index } from 'drizzle-orm/pg-core';
 import { user } from './better-auth-user';
 import { organization } from './better-auth-organization';
 import { tenant } from './tenant';
+import {
+  organizationTenantScopeFk,
+  tenantIdNotBlank,
+  tenantScopeColumn,
+  userTenantScopeFk,
+} from './tenant-scope';
 
 export const session = pgTable(
   'session',
   {
     id: text('id').primaryKey(),
     tenantId: text('tenant_id').references(() => tenant.id, {
-      onDelete: 'cascade',
+      onDelete: 'restrict',
     }),
+    tenantScope: tenantScopeColumn(),
     expiresAt: timestamp('expires_at').notNull(),
     token: text('token').notNull().unique(),
     createdAt: timestamp('created_at').defaultNow().notNull(),
@@ -36,6 +43,21 @@ export const session = pgTable(
     index('idx_session_user_id').on(table.userId),
     index('idx_session_token').on(table.token),
     index('idx_session_expires_at').on(table.expiresAt),
+    tenantIdNotBlank('ck_session_tenant_id_not_blank', table.tenantId),
+    userTenantScopeFk(
+      'fk_session_user_tenant_scope',
+      table.userId,
+      table.tenantScope,
+      user.id,
+      user.tenantScope,
+    ),
+    organizationTenantScopeFk(
+      'fk_session_active_org_tenant_scope',
+      table.activeOrganizationId,
+      table.tenantScope,
+      organization.id,
+      organization.tenantScope,
+    ),
   ],
 );
 

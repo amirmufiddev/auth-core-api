@@ -8,14 +8,20 @@ import {
 } from 'drizzle-orm/pg-core';
 import { user } from './better-auth-user';
 import { tenant } from './tenant';
+import {
+  tenantIdNotBlank,
+  tenantScopeColumn,
+  userTenantScopeFk,
+} from './tenant-scope';
 
 export const account = pgTable(
   'account',
   {
     id: text('id').primaryKey(),
     tenantId: text('tenant_id').references(() => tenant.id, {
-      onDelete: 'cascade',
+      onDelete: 'restrict',
     }),
+    tenantScope: tenantScopeColumn(),
     accountId: text('account_id').notNull(),
     providerId: text('provider_id').notNull(),
     userId: text('user_id')
@@ -43,6 +49,14 @@ export const account = pgTable(
     uniqueIndex('uq_account_tenant_provider_account')
       .on(table.tenantId, table.providerId, table.accountId)
       .where(sql`${table.tenantId} IS NOT NULL`),
+    tenantIdNotBlank('ck_account_tenant_id_not_blank', table.tenantId),
+    userTenantScopeFk(
+      'fk_account_user_tenant_scope',
+      table.userId,
+      table.tenantScope,
+      user.id,
+      user.tenantScope,
+    ),
   ],
 );
 
