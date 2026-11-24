@@ -11,6 +11,16 @@ import {
 } from './auth';
 import { AuthRuntimeRegistry } from './auth-runtime.registry';
 import { AuthFeatureConfigService } from './services/auth-feature-config.service';
+import { SocialBridgeController } from './social-bridge/social-bridge.controller';
+import {
+  DrizzleSocialBridgeRepository,
+  SOCIAL_BRIDGE_REPOSITORY_TOKEN,
+} from './social-bridge/social-bridge.repository';
+import {
+  FetchSocialBridgeOAuthClient,
+  SOCIAL_BRIDGE_OAUTH_CLIENT_TOKEN,
+} from './social-bridge/social-bridge.oauth-client';
+import { SocialBridgeService } from './social-bridge/social-bridge.service';
 import { DatabaseModule } from '@/database/database.module';
 import { DRIZZLE } from '@/database/database.constants';
 import * as schema from '@/database/schema';
@@ -200,6 +210,18 @@ export class AuthRuntimeCoreModule {}
       },
     }),
   ],
-  exports: [BetterAuthModule, AuthRuntimeCoreModule],
+  controllers: [SocialBridgeController],
+  providers: [
+    SocialBridgeService,
+    {
+      provide: SOCIAL_BRIDGE_REPOSITORY_TOKEN,
+      useClass: DrizzleSocialBridgeRepository,
+    },
+    {
+      provide: SOCIAL_BRIDGE_OAUTH_CLIENT_TOKEN,
+      useClass: FetchSocialBridgeOAuthClient,
+    },
+  ],
+  exports: [BetterAuthModule, AuthRuntimeCoreModule, SocialBridgeService],
 })
 export class AuthModule {}

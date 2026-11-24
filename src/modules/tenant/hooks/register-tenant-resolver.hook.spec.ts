@@ -639,4 +639,78 @@ describe('createTenantRewriteUrl & registerTenantResolverHook', () => {
 
     await app.close();
   });
+
+  it('should resolve wildcard subdomain pos-amir.authcore.local to ten_pos, bypass reserved hosts auth/console.authcore.local to platform, and reject pos-amir.authcore.local/t/bima with 400 TENANT_MISMATCH', async () => {
+    const lookupSpy = mock((slug: string) =>
+      Promise.resolve(tenantMap[slug] ?? null),
+    );
+    const moduleRef = await Test.createTestingModule({
+      controllers: [TenantProbeController],
+    }).compile();
+
+    const app = moduleRef.createNestApplication<NestFastifyApplication>(
+      new FastifyAdapter({
+        rewriteUrl: createTenantRewriteUrl(),
+        trustProxy: true,
+      }),
+    );
+
+    registerTenantResolverHook(
+      app,
+      lookupSpy,
+      ['localhost', 'auth.authcore.local', 'console.authcore.local'],
+      { tenantBaseDomain: 'authcore.local' },
+    );
+    await app.init();
+
+    const fastify = app.getHttpAdapter().getInstance();
+
+    // 1. Wildcard subdomain pos-amir.authcore.local resolves ten_pos with source: 'subdomain'
+    const subRes = await fastify.inject({
+      method: 'GET',
+      url: '/api/context/session',
+      headers: { host: 'pos-amir.authcore.local' },
+    });
+    expect(subRes.statusCode).toBe(200);
+    expect(subRes.json().context).toEqual({
+      tenantId: 'ten_pos',
+      slug: 'pos-amir',
+      tierId: 'tier_business',
+      configVersion: 3,
+      source: 'subdomain',
+    });
+
+    // 2. Reserved platform hosts auth.authcore.local & console.authcore.local bypass to Platform
+    for (const platformHost of [
+      'auth.authcore.local',
+      'console.authcore.local',
+    ]) {
+      lookupSpy.mockClear();
+      const platformRes = await fastify.inject({
+        method: 'GET',
+        url: '/api/context/session',
+        headers: { host: platformHost },
+      });
+      expect(platformRes.statusCode).toBe(200);
+      expect(lookupSpy).not.toHaveBeenCalled();
+      expect(platformRes.json().context).toEqual({
+        tenantId: null,
+        slug: null,
+        tierId: null,
+        configVersion: 0,
+        source: 'platform',
+      });
+    }
+
+    // 3. Combined pos-amir.authcore.local/t/bima/... rejected with 400 TENANT_MISMATCH
+    const mismatchRes = await fastify.inject({
+      method: 'GET',
+      url: '/t/bima/api/context/session',
+      headers: { host: 'pos-amir.authcore.local' },
+    });
+    expect(mismatchRes.statusCode).toBe(400);
+    expect(mismatchRes.json().code).toBe('TENANT_MISMATCH');
+
+    await app.close();
+  });
 });
