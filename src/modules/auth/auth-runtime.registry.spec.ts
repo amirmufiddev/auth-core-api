@@ -458,4 +458,105 @@ describe('AuthRuntimeRegistry', () => {
     );
     expect(redis._subscriber.quit).toHaveBeenCalledTimes(1);
   });
+
+  it('does not populate stale LRU entry when invalidateTenant is called while build is in-flight', async () => {
+    const redis = createMockRedis();
+    const registry = new AuthRuntimeRegistry(
+      redis as any,
+      createMockConfigService(),
+    );
+
+    let resolveFirstBuild!: (val: any) => void;
+    const firstBuildPromise = new Promise((resolve) => {
+      resolveFirstBuild = resolve;
+    });
+    let markBuildStarted!: () => void;
+    const buildStartedPromise = new Promise<void>((resolve) => {
+      markBuildStarted = resolve;
+    });
+
+    let buildCount = 0;
+    registry.initialize({
+      platformInstance: {} as any,
+      buildPlatformAuth: () => ({}) as any,
+      buildTenantAuth: () => {
+        buildCount += 1;
+        if (buildCount === 1) {
+          markBuildStarted();
+          return firstBuildPromise as any;
+        }
+        return { seq: buildCount } as any;
+      },
+    });
+
+    const ctx: ResolvedTenantContext = {
+      tenantId: 't-inflight',
+      slug: 'inflight',
+      tierId: null,
+      configVersion: 1,
+      source: 'subdomain',
+    };
+
+    const pending = registry.getForContext(ctx);
+    await buildStartedPromise;
+
+    await registry.invalidateTenant('t-inflight');
+
+    resolveFirstBuild({ seq: 1, stale: true });
+    const firstResult = (await pending) as any;
+    expect(firstResult.stale).toBe(true);
+
+    // Subsequent lookup must NOT hit stale LRU entry; it must rebuild
+    const freshResult = (await registry.getForContext(ctx)) as any;
+    expect(freshResult.seq).toBe(2);
+    expect(freshResult.stale).toBeUndefined();
+    expect(buildCount).toBe(2);
+  });
+
+  it('apiProxy invokes a method present on tenant auth.api even when absent on platformInstance.api', async () => {
+    const redis = createMockRedis();
+    const registry = new AuthRuntimeRegistry(
+      redis as any,
+      createMockConfigService(),
+    );
+
+    const platformAuth = {
+      api: {
+        whoami: async () => 'platform',
+      },
+      handler: async () => new Response('platform'),
+    } as any;
+
+    const tenantAuth = {
+      api: {
+        whoami: async () => 'tenant',
+        generatePasskeyRegistrationOptions: async (opts: { rpName: string }) =>
+          `passkey:${opts.rpName}`,
+      },
+      handler: async () => new Response('tenant'),
+    } as any;
+
+    registry.initialize({
+      platformInstance: platformAuth,
+      buildPlatformAuth: () => platformAuth,
+      buildTenantAuth: () => tenantAuth,
+    });
+
+    const proxy = registry.createContextAwareProxy() as any;
+
+    const tenantCtx: ResolvedTenantContext = {
+      tenantId: 't-passkey',
+      slug: 'passkey-tenant',
+      tierId: 'tier-pro',
+      configVersion: 1,
+      source: 'subdomain',
+    };
+
+    await TenantContextStorage.run(tenantCtx, async () => {
+      const result = await proxy.api.generatePasskeyRegistrationOptions({
+        rpName: 'Acme',
+      });
+      expect(result).toBe('passkey:Acme');
+    });
+  });
 });
