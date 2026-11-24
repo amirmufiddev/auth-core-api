@@ -1,5 +1,6 @@
 import { Global, Module } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { ModuleRef } from '@nestjs/core';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { AuthModule as BetterAuthModule } from '@thallesp/nestjs-better-auth';
 import { NodePgDatabase } from 'drizzle-orm/node-postgres';
@@ -24,6 +25,7 @@ import {
   type ResolvedTenantContext,
   TenantContextStorage,
 } from '@/modules/tenant';
+import type { FeatureResolutionService } from '@/modules/feature-tier';
 
 const dynamicEsmImport = new Function(
   'specifier',
@@ -55,6 +57,7 @@ export class AuthRuntimeCoreModule {}
         DRIZZLE,
         AuthFeatureConfigService,
         AuthRuntimeRegistry,
+        ModuleRef,
       ],
       useFactory: async (
         configService: ConfigService,
@@ -65,6 +68,7 @@ export class AuthRuntimeCoreModule {}
         db: NodePgDatabase<typeof schema>,
         featureConfigService: AuthFeatureConfigService,
         registry: AuthRuntimeRegistry,
+        moduleRef: ModuleRef,
       ) => {
         const betterAuthStatement = await loadBetterAuthStatement(db);
         let currentFeatureConfig =
@@ -113,6 +117,9 @@ export class AuthRuntimeCoreModule {}
         const buildAuth = (
           fc: typeof currentFeatureConfig,
           tenantContext?: ResolvedTenantContext | null,
+          decryptedSecrets?: Parameters<
+            typeof createAuthInstance
+          >[0]['decryptedSecrets'],
         ) =>
           createAuthInstance({
             configService,
@@ -126,15 +133,54 @@ export class AuthRuntimeCoreModule {}
             tenantBaseDomain,
             betterAuthStatement,
             featureConfig: fc,
+            decryptedSecrets,
             agentAuthPluginFactory,
             auditLogger,
           });
 
+        const getFeatureResolutionService = ():
+          | FeatureResolutionService
+          | undefined => {
+          try {
+            return moduleRef.get<FeatureResolutionService>(
+              'FEATURE_RESOLUTION_SERVICE',
+              { strict: false },
+            );
+          } catch {
+            return undefined;
+          }
+        };
+
         const initialAuth = buildAuth(currentFeatureConfig);
         registry.initialize({
           platformInstance: initialAuth,
-          buildPlatformAuth: () => buildAuth(currentFeatureConfig),
-          buildTenantAuth: (ctx) => buildAuth(currentFeatureConfig, ctx),
+          buildPlatformAuth: async () => {
+            const resolver = getFeatureResolutionService();
+            if (resolver) {
+              const resolved = await resolver.resolveForPlatform();
+              return buildAuth(
+                resolved.configMap,
+                null,
+                resolved.decryptedSecrets,
+              );
+            }
+            return buildAuth(currentFeatureConfig);
+          },
+          buildTenantAuth: async (ctx) => {
+            const resolver = getFeatureResolutionService();
+            if (resolver && ctx.tenantId) {
+              const resolved = await resolver.resolveForTenant(
+                ctx.tenantId,
+                ctx.tierId,
+              );
+              return buildAuth(
+                resolved.configMap,
+                ctx,
+                resolved.decryptedSecrets,
+              );
+            }
+            return buildAuth(currentFeatureConfig, ctx);
+          },
         });
 
         featureConfigService.onConfigUpdated(async (nextConfig) => {

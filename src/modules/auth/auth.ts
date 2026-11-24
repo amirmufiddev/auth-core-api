@@ -108,8 +108,24 @@ export interface AuthDependencies {
   eventEmitter?: EventEmitter2;
   betterAuthStatement?: Record<string, readonly string[]>;
   featureConfig?: FeatureConfigMap;
+  decryptedSecrets?: Partial<
+    Record<BetterAuthFeatureId, Record<string, string>>
+  >;
   agentAuthPluginFactory?: AgentAuthPluginFactory;
   auditLogger?: (entry: AuditLogInput) => Promise<void>;
+}
+
+function getSecret(
+  deps: AuthDependencies,
+  id: BetterAuthFeatureId,
+  key: string,
+  platformEnvFallback?: string,
+): string {
+  const tenantSecret = deps.decryptedSecrets?.[id]?.[key];
+  if (deps.tenantContext?.tenantId) {
+    return tenantSecret ?? '';
+  }
+  return tenantSecret || platformEnvFallback || '';
 }
 
 function isEnabled(
@@ -465,7 +481,11 @@ const buildSocialProvidersConfig = (
   googleClientSecret: string,
 ) => {
   const fc = deps.featureConfig;
+  const isTenant = Boolean(deps.tenantContext?.tenantId);
   if (!fc) {
+    if (isTenant) {
+      return {};
+    }
     return {
       google: {
         clientId: googleClientId,
@@ -481,14 +501,21 @@ const buildSocialProvidersConfig = (
     const clientIdFromSetting = String(
       getSetting(fc, entry.featureId, 'clientId', ''),
     );
-    const clientId =
-      entry.providerKey === 'google'
+    const clientId = isTenant
+      ? clientIdFromSetting
+      : entry.providerKey === 'google'
         ? googleClientId || clientIdFromSetting
         : process.env[`${entry.envPrefix}_CLIENT_ID`] || clientIdFromSetting;
-    const clientSecret =
-      entry.providerKey === 'google'
-        ? googleClientSecret
-        : process.env[`${entry.envPrefix}_CLIENT_SECRET`] || '';
+    const clientSecret = isTenant
+      ? getSecret(deps, entry.featureId, 'clientSecret')
+      : getSecret(
+          deps,
+          entry.featureId,
+          'clientSecret',
+          entry.providerKey === 'google'
+            ? googleClientSecret
+            : process.env[`${entry.envPrefix}_CLIENT_SECRET`] || '',
+        );
 
     if (clientId && clientSecret) {
       providers[entry.providerKey] = {
@@ -506,16 +533,27 @@ const buildPaymentPlugins = (deps: AuthDependencies): unknown[] => {
   if (!fc) return [];
   const paymentPlugins: unknown[] = [];
 
-  if (isEnabled(fc, 'stripe', false) && process.env.STRIPE_SECRET_KEY) {
+  const stripeSecretKey = getSecret(
+    deps,
+    'stripe',
+    'secretKey',
+    process.env.STRIPE_SECRET_KEY,
+  );
+  if (isEnabled(fc, 'stripe', false) && stripeSecretKey) {
     try {
       // eslint-disable-next-line @typescript-eslint/no-require-imports
       const Stripe = require('stripe');
-      const stripeClient = new Stripe(process.env.STRIPE_SECRET_KEY);
+      const stripeClient = new Stripe(stripeSecretKey);
       paymentPlugins.push(
         stripe({
           stripeClient,
           stripeWebhookSecret:
-            process.env.STRIPE_WEBHOOK_SECRET || 'whsec_placeholder',
+            getSecret(
+              deps,
+              'stripe',
+              'webhookSecret',
+              process.env.STRIPE_WEBHOOK_SECRET,
+            ) || 'whsec_placeholder',
           createCustomerOnSignUp: Boolean(
             getSetting(fc, 'stripe', 'createCustomerOnSignUp', true),
           ),
@@ -529,14 +567,20 @@ const buildPaymentPlugins = (deps: AuthDependencies): unknown[] => {
     }
   }
 
-  if (isEnabled(fc, 'polar', false) && process.env.POLAR_ACCESS_TOKEN) {
+  const polarAccessToken = getSecret(
+    deps,
+    'polar',
+    'accessToken',
+    process.env.POLAR_ACCESS_TOKEN,
+  );
+  if (isEnabled(fc, 'polar', false) && polarAccessToken) {
     try {
       // eslint-disable-next-line @typescript-eslint/no-require-imports
       const { polar } = require('@polar-sh/better-auth');
       // eslint-disable-next-line @typescript-eslint/no-require-imports
       const { Polar } = require('@polar-sh/sdk');
       const polarClient = new Polar({
-        accessToken: process.env.POLAR_ACCESS_TOKEN,
+        accessToken: polarAccessToken,
         server: String(getSetting(fc, 'polar', 'environment', 'sandbox')) as
           'sandbox' | 'production',
       });
@@ -555,17 +599,20 @@ const buildPaymentPlugins = (deps: AuthDependencies): unknown[] => {
     }
   }
 
-  if (
-    isEnabled(fc, 'dodoPayments', false) &&
-    process.env.DODO_PAYMENTS_API_KEY
-  ) {
+  const dodoApiKey = getSecret(
+    deps,
+    'dodoPayments',
+    'apiKey',
+    process.env.DODO_PAYMENTS_API_KEY,
+  );
+  if (isEnabled(fc, 'dodoPayments', false) && dodoApiKey) {
     try {
       // eslint-disable-next-line @typescript-eslint/no-require-imports
       const { dodopayments } = require('@dodopayments/better-auth');
       // eslint-disable-next-line @typescript-eslint/no-require-imports
       const DodoPayments = require('dodopayments').default;
       const client = new DodoPayments({
-        bearerToken: process.env.DODO_PAYMENTS_API_KEY,
+        bearerToken: dodoApiKey,
         environment: String(
           getSetting(fc, 'dodoPayments', 'environment', 'test_mode'),
         ),
@@ -585,14 +632,26 @@ const buildPaymentPlugins = (deps: AuthDependencies): unknown[] => {
     }
   }
 
-  if (isEnabled(fc, 'creem', false) && process.env.CREEM_API_KEY) {
+  const creemApiKey = getSecret(
+    deps,
+    'creem',
+    'apiKey',
+    process.env.CREEM_API_KEY,
+  );
+  if (isEnabled(fc, 'creem', false) && creemApiKey) {
     try {
       // eslint-disable-next-line @typescript-eslint/no-require-imports
       const { creem } = require('@creem_io/better-auth');
       paymentPlugins.push(
         creem({
-          apiKey: process.env.CREEM_API_KEY,
-          webhookSecret: process.env.CREEM_WEBHOOK_SECRET || 'creem_whsec',
+          apiKey: creemApiKey,
+          webhookSecret:
+            getSecret(
+              deps,
+              'creem',
+              'webhookSecret',
+              process.env.CREEM_WEBHOOK_SECRET,
+            ) || 'creem_whsec',
           testMode: Boolean(getSetting(fc, 'creem', 'testMode', true)),
         }),
       );
@@ -604,18 +663,24 @@ const buildPaymentPlugins = (deps: AuthDependencies): unknown[] => {
     }
   }
 
-  if (isEnabled(fc, 'chargebee', false) && process.env.CHARGEBEE_API_KEY) {
+  const chargebeeApiKey = getSecret(
+    deps,
+    'chargebee',
+    'apiKey',
+    process.env.CHARGEBEE_API_KEY,
+  );
+  if (isEnabled(fc, 'chargebee', false) && chargebeeApiKey) {
     try {
       // eslint-disable-next-line @typescript-eslint/no-require-imports
       const { chargebee } = require('@chargebee/better-auth');
       // eslint-disable-next-line @typescript-eslint/no-require-imports
       const Chargebee = require('chargebee');
       const site =
-        process.env.CHARGEBEE_SITE ||
+        (deps.tenantContext?.tenantId ? '' : process.env.CHARGEBEE_SITE) ||
         String(getSetting(fc, 'chargebee', 'site', 'authcore-test'));
       const cbClient = new Chargebee({
         site,
-        apiKey: process.env.CHARGEBEE_API_KEY,
+        apiKey: chargebeeApiKey,
       });
       paymentPlugins.push(chargebee({ client: cbClient }));
     } catch (error) {
@@ -887,7 +952,12 @@ const buildPluginsConfig = (
 
   if (fc && isEnabled(fc, 'oneTap', false)) {
     const oneTapClientId = String(
-      getSetting(fc, 'oneTap', 'clientId', process.env.GOOGLE_CLIENT_ID || ''),
+      getSetting(
+        fc,
+        'oneTap',
+        'clientId',
+        deps.tenantContext?.tenantId ? '' : process.env.GOOGLE_CLIENT_ID || '',
+      ),
     );
     if (oneTapClientId) {
       pluginsList.push(
@@ -920,7 +990,13 @@ const buildPluginsConfig = (
       getSetting(fc, 'genericOAuth', 'discoveryUrl', ''),
     );
     const gClientId = String(getSetting(fc, 'genericOAuth', 'clientId', ''));
-    if (discoveryUrl && gClientId) {
+    const gClientSecret = getSecret(
+      deps,
+      'genericOAuth',
+      'clientSecret',
+      process.env.GENERIC_OAUTH_CLIENT_SECRET,
+    );
+    if (discoveryUrl && gClientId && gClientSecret) {
       pluginsList.push(
         genericOAuth({
           config: [
@@ -928,7 +1004,7 @@ const buildPluginsConfig = (
               providerId,
               discoveryUrl,
               clientId: gClientId,
-              clientSecret: process.env.GENERIC_OAUTH_CLIENT_SECRET || '',
+              clientSecret: gClientSecret,
             },
           ],
         }),
@@ -1444,7 +1520,12 @@ const buildPluginsConfig = (
   }
 
   if (fc && isEnabled(fc, 'captcha', false)) {
-    const captchaSecret = process.env.CAPTCHA_SECRET_KEY;
+    const captchaSecret = getSecret(
+      deps,
+      'captcha',
+      'secretKey',
+      process.env.CAPTCHA_SECRET_KEY,
+    );
     if (captchaSecret) {
       pluginsList.push(
         captcha({

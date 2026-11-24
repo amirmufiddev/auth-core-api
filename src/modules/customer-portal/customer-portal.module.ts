@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { DatabaseModule } from '@/database/database.module';
 import { BillingModule } from '@/modules/billing';
+import { FeatureTierModule } from '@/modules/feature-tier';
 import { RbacModule } from '@/modules/rbac';
 import { TenantModule } from '@/modules/tenant';
 import { CustomerPortalController } from './controllers/customer-portal.controller';
@@ -17,7 +18,13 @@ import { PortalTenantOrgsService } from './services/portal-tenant-orgs.service';
 import { PortalTenantUsersService } from './services/portal-tenant-users.service';
 
 @Module({
-  imports: [DatabaseModule, TenantModule, BillingModule, RbacModule],
+  imports: [
+    DatabaseModule,
+    TenantModule,
+    BillingModule,
+    RbacModule,
+    FeatureTierModule,
+  ],
   controllers: [CustomerPortalController, OperatorTenantUsersController],
   providers: [
     {

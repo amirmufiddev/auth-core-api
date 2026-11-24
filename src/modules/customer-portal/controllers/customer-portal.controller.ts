@@ -8,6 +8,7 @@ import {
   Param,
   Patch,
   Post,
+  Put,
   Query,
   UnauthorizedException,
   UseGuards,
@@ -21,6 +22,10 @@ import {
 } from '@nestjs/swagger';
 import { Session } from '@thallesp/nestjs-better-auth';
 import { BillingRecordResponseDto } from '@/modules/billing';
+import {
+  TenantFeatureConfigService,
+  UpdateTenantFeatureConfigDto,
+} from '@/modules/feature-tier';
 import { TenantResponseDto } from '@/modules/tenant';
 import {
   CreatePortalOAuthClientDto,
@@ -57,6 +62,7 @@ export class CustomerPortalController {
     private readonly portalService: CustomerPortalService,
     private readonly portalTenantUsersService: PortalTenantUsersService,
     private readonly portalTenantOrgsService: PortalTenantOrgsService,
+    private readonly tenantFeatureConfigService: TenantFeatureConfigService,
   ) {}
 
   private extractUserId(session: PortalSessionContext | null): string {
@@ -210,6 +216,33 @@ export class CustomerPortalController {
     return this.portalTenantOrgsService.listTenantOrganizations(
       tenantId,
       query,
+    );
+  }
+
+  @Get(':tenantId/features')
+  @ApiOperation({
+    summary:
+      'Daftar konfigurasi fitur tenant (hanya mengembalikan secretsConfigured boolean, tanpa plaintext/ciphertext)',
+  })
+  async getTenantFeatures(@Param('tenantId') tenantId: string) {
+    return this.tenantFeatureConfigService.getTenantFeatureConfigs(tenantId);
+  }
+
+  @Put(':tenantId/features')
+  @ApiOperation({
+    summary:
+      'Perbarui konfigurasi fitur & secret terenkripsi milik tenant (validasi tier & status fitur)',
+  })
+  async updateTenantFeature(
+    @Param('tenantId') tenantId: string,
+    @Session() session: PortalSessionContext | null,
+    @Body() body: UpdateTenantFeatureConfigDto,
+  ) {
+    const userId = this.extractUserId(session);
+    return this.tenantFeatureConfigService.updateTenantFeatureConfig(
+      tenantId,
+      body,
+      userId,
     );
   }
 }
