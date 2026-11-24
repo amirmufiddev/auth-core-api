@@ -712,6 +712,7 @@ const buildPaymentPlugins = (deps: AuthDependencies): unknown[] => {
 const buildPluginsConfig = (
   deps: AuthDependencies,
   authDb: ReturnType<typeof drizzle>,
+  databaseAdapter: unknown,
 ): unknown[] => {
   const { appName, fallbackLanguage, baseUrl } =
     deps.configService.get<AppConfig>('app', {
@@ -761,6 +762,9 @@ const buildPluginsConfig = (
         apiKey: hasApiKey,
         deviceAuthorization: hasDeviceAuth,
         oauthProvider: hasOAuthProvider,
+      },
+      assertLookupAdapter: databaseAdapter as {
+        findOne?: (...args: unknown[]) => Promise<unknown>;
       },
     }),
   );
@@ -1814,13 +1818,15 @@ export const createAuthInstance = (deps: AuthDependencies) => {
 
   const cookieConfig = resolveTenantCookieConfig(deps.tenantContext);
 
+  const databaseAdapter =
+    deps.database ?? drizzleAdapter(authDb, { provider: 'pg', schema });
+
   const options: BetterAuthOptions = {
     appName,
     basePath: path,
     baseURL: resolvedBaseUrl,
     secret,
-    database:
-      deps.database ?? drizzleAdapter(authDb, { provider: 'pg', schema }),
+    database: databaseAdapter,
     secondaryStorage: deps.secondaryStorage,
     verification: {
       storeInDatabase: true,
@@ -1878,7 +1884,7 @@ export const createAuthInstance = (deps: AuthDependencies) => {
           },
         }
       : {}),
-    plugins: buildPluginsConfig(deps, authDb) as any[],
+    plugins: buildPluginsConfig(deps, authDb, databaseAdapter) as any[],
     logger: {
       disabled: false,
       level: 'error',

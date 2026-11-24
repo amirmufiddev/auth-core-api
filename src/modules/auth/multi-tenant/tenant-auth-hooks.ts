@@ -15,6 +15,7 @@ import {
 
 export const CROSS_TENANT_OAUTH_CLIENT_ERROR = 'CROSS_TENANT_OAUTH_CLIENT';
 export const CROSS_TENANT_ORGANIZATION_ERROR = 'CROSS_TENANT_ORGANIZATION';
+export const CROSS_TENANT_USER_SCOPE_ERROR = 'CROSS_TENANT_USER_SCOPE';
 export const TENANT_SUSPENDED_ERROR = 'TENANT_SUSPENDED';
 export const CROSS_TENANT_SESSION_ERROR = 'CROSS_TENANT_SESSION';
 export const CROSS_TENANT_ADMIN_ERROR = 'CROSS_TENANT_ADMIN';
@@ -36,6 +37,8 @@ export interface TenantIsolationPluginOptions {
   staticTenantContext?: ResolvedTenantContext | null;
   tenantStatus?: 'active' | 'suspended';
   enabledPlugins: EnabledTenantPlugins;
+  /** Raw DB adapter for unscoped parent lookups in assertPayloadTenantMatch. */
+  assertLookupAdapter?: GenericAdapter;
 }
 
 type WhereOperator =
@@ -303,6 +306,65 @@ function extractCandidateTokens(ctx: {
   return tokens;
 }
 
+const USER_TENANT_MATCH_MODELS = new Set([
+  'session',
+  'account',
+  'member',
+  'passkey',
+  'twoFactor',
+  'oauthRefreshToken',
+  'oauthAccessToken',
+  'oauthConsent',
+  'deviceCode',
+  'ssoProvider',
+]);
+
+const ORG_TENANT_MATCH_FIELD: Record<string, 'organizationId' | 'activeOrganizationId'> = {
+  member: 'organizationId',
+  invitation: 'organizationId',
+  organizationRole: 'organizationId',
+  session: 'activeOrganizationId',
+};
+
+async function assertPayloadTenantMatch(
+  lookupAdapter: GenericAdapter,
+  model: string,
+  data: Record<string, unknown> | undefined,
+): Promise<void> {
+  if (!data || !('tenantId' in data) || !lookupAdapter.findOne) {
+    return;
+  }
+  const rowTenantId = (data.tenantId ?? null) as string | null;
+
+  if (USER_TENANT_MATCH_MODELS.has(model) && typeof data.userId === 'string') {
+    const owner = (await lookupAdapter.findOne({
+      model: 'user',
+      where: [{ field: 'id', value: data.userId, operator: 'eq' }],
+    })) as { tenantId?: string | null } | null;
+    if (!owner || (owner.tenantId ?? null) !== rowTenantId) {
+      throw new APIError('FORBIDDEN', {
+        code: CROSS_TENANT_USER_SCOPE_ERROR,
+        message: 'tenant_id baris tidak sama dengan tenant user.',
+      });
+    }
+  }
+
+  const orgField = ORG_TENANT_MATCH_FIELD[model];
+  const organizationId = orgField ? data[orgField] : undefined;
+  if (typeof organizationId === 'string' && organizationId.length > 0) {
+    const org = (await lookupAdapter.findOne({
+      model: 'organization',
+      where: [{ field: 'id', value: organizationId, operator: 'eq' }],
+    })) as { tenantId?: string | null } | null;
+    if (!org || (org.tenantId ?? null) !== rowTenantId) {
+      throw new APIError('FORBIDDEN', {
+        code: CROSS_TENANT_ORGANIZATION_ERROR,
+        message: 'tenant_id baris tidak sama dengan tenant organisasi.',
+      });
+    }
+  }
+}
+
 function appendTenantWhere(
   where: AdapterWhereCondition[] | undefined,
   tenantId: string | null,
@@ -325,7 +387,9 @@ function appendTenantWhere(
 function wrapTenantScopedAdapter(
   baseAdapter: GenericAdapter,
   staticCtx?: ResolvedTenantContext | null,
+  assertLookupAdapter?: GenericAdapter,
 ): GenericAdapter {
+  const lookupAdapter = assertLookupAdapter ?? baseAdapter;
   const wrap = (adapter: GenericAdapter): GenericAdapter =>
     new Proxy(adapter, {
       get(target, prop, receiver) {
@@ -344,38 +408,53 @@ function wrapTenantScopedAdapter(
         }
 
         if (prop === 'create') {
-          return (args: AdapterQueryArgs, ...rest: unknown[]) => {
+          return async (args: AdapterQueryArgs, ...rest: unknown[]) => {
             if (!args || !TENANT_WRITE_MODELS.has(args.model)) {
               return (value as AdapterMethod).call(target, args, ...rest);
             }
             const tenantId = getEffectiveTenantContext(staticCtx).tenantId;
+            let nextArgs = args;
             if (tenantId !== null) {
-              return (value as AdapterMethod).call(
-                target,
-                {
-                  ...args,
-                  data: {
-                    ...args.data,
-                    tenantId,
-                  },
-                },
-                ...rest,
-              );
+              const data = { ...args.data, tenantId };
+              await assertPayloadTenantMatch(lookupAdapter, args.model, data);
+              nextArgs = { ...args, data };
+            } else if (args.model === 'user') {
+              const data = { ...args.data, tenantId: null };
+              await assertPayloadTenantMatch(lookupAdapter, args.model, data);
+              nextArgs = { ...args, data };
+            } else {
+              await assertPayloadTenantMatch(lookupAdapter, args.model, args.data);
             }
-            if (args.model === 'user') {
-              return (value as AdapterMethod).call(
-                target,
-                {
-                  ...args,
-                  data: {
-                    ...args.data,
-                    tenantId: null,
-                  },
-                },
-                ...rest,
-              );
+            return (value as AdapterMethod).call(target, nextArgs, ...rest);
+          };
+        }
+
+        if (prop === 'update' || prop === 'updateMany') {
+          return async (args: AdapterQueryArgs, ...rest: unknown[]) => {
+            if (!args) {
+              return (value as AdapterMethod).call(target, args, ...rest);
             }
-            return (value as AdapterMethod).call(target, args, ...rest);
+            if (args.data) {
+              await assertPayloadTenantMatch(lookupAdapter, args.model, args.data);
+            }
+            const tenantId = getEffectiveTenantContext(staticCtx).tenantId;
+            const shouldFilter =
+              TENANT_READ_FILTER_MODELS.has(args.model) ||
+              args.model === 'oauthClient';
+
+            if (!shouldFilter) {
+              return (value as AdapterMethod).call(target, args, ...rest);
+            }
+
+            const nextWhere = appendTenantWhere(args.where, tenantId);
+            return (value as AdapterMethod).call(
+              target,
+              {
+                ...args,
+                where: nextWhere,
+              },
+              ...rest,
+            );
           };
         }
 
@@ -552,6 +631,7 @@ export function buildTenantIsolationPlugin(
           adapter: wrapTenantScopedAdapter(
             ctx.adapter,
             options.staticTenantContext,
+            options.assertLookupAdapter,
           ),
         },
       };

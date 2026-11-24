@@ -15,6 +15,8 @@ import {
   buildTenantIsolationPlugin,
   CROSS_TENANT_ADMIN_ERROR,
   CROSS_TENANT_OAUTH_CLIENT_ERROR,
+  CROSS_TENANT_ORGANIZATION_ERROR,
+  CROSS_TENANT_USER_SCOPE_ERROR,
   resolveTenantCookieConfig,
   TENANT_SUSPENDED_ERROR,
 } from './tenant-auth-hooks';
@@ -882,5 +884,138 @@ describe('admin plugin cross-tenant guard', () => {
         headers: new Headers(),
       }),
     ).resolves.toBeUndefined();
+  });
+});
+
+describe('adapter cross-tenant write guard', () => {
+  async function expectApiCode(promise: Promise<unknown>, code: string) {
+    try {
+      await promise;
+      throw new Error(`expected ${code}`);
+    } catch (error) {
+      if (error instanceof Error && error.message === `expected ${code}`) {
+        throw error;
+      }
+      expect(JSON.stringify(error)).toContain(code);
+    }
+  }
+
+  it('should reject an account whose user belongs to another tenant', async () => {
+    const plugin = buildTenantIsolationPlugin({
+      staticTenantContext: null,
+      enabledPlugins: {
+        twoFactor: false,
+        passkey: false,
+        apiKey: false,
+        deviceAuthorization: false,
+        oauthProvider: false,
+      },
+    });
+    const created: unknown[] = [];
+    const { adapter } = plugin.init({
+      adapter: {
+        findOne: async (args: { model: string }) => {
+          if (args.model === 'user') return { id: 'usr_b', tenantId: 'ten_b' };
+          return null;
+        },
+        create: async (args: unknown) => {
+          created.push(args);
+          return args;
+        },
+      },
+    }).context;
+    await expectApiCode(
+      adapter.create({
+        model: 'account',
+        data: {
+          userId: 'usr_b',
+          tenantId: 'ten_a',
+          providerId: 'credential',
+          accountId: 'a',
+        },
+      }),
+      CROSS_TENANT_USER_SCOPE_ERROR,
+    );
+    expect(created).toHaveLength(0);
+  });
+
+  it('should reject a member when user tenant disagrees with row tenant', async () => {
+    const plugin = buildTenantIsolationPlugin({
+      staticTenantContext: null,
+      enabledPlugins: {
+        twoFactor: false,
+        passkey: false,
+        apiKey: false,
+        deviceAuthorization: false,
+        oauthProvider: false,
+      },
+    });
+    const created: unknown[] = [];
+    const { adapter } = plugin.init({
+      adapter: {
+        findOne: async (args: { model: string }) => {
+          if (args.model === 'user') return { tenantId: 'ten_a' };
+          if (args.model === 'organization') return { tenantId: 'ten_b' };
+          return null;
+        },
+        create: async (args: unknown) => {
+          created.push(args);
+          return args;
+        },
+      },
+    }).context;
+    await expectApiCode(
+      adapter.create({
+        model: 'member',
+        data: {
+          userId: 'usr_a',
+          organizationId: 'org_b',
+          tenantId: 'ten_b',
+          role: 'member',
+        },
+      }),
+      CROSS_TENANT_USER_SCOPE_ERROR,
+    );
+    expect(created).toHaveLength(0);
+  });
+
+  it('should reject a member when organization tenant disagrees with row tenant', async () => {
+    const plugin = buildTenantIsolationPlugin({
+      staticTenantContext: null,
+      enabledPlugins: {
+        twoFactor: false,
+        passkey: false,
+        apiKey: false,
+        deviceAuthorization: false,
+        oauthProvider: false,
+      },
+    });
+    const created: unknown[] = [];
+    const { adapter } = plugin.init({
+      adapter: {
+        findOne: async (args: { model: string }) => {
+          if (args.model === 'user') return { tenantId: 'ten_b' };
+          if (args.model === 'organization') return { tenantId: 'ten_a' };
+          return null;
+        },
+        create: async (args: unknown) => {
+          created.push(args);
+          return args;
+        },
+      },
+    }).context;
+    await expectApiCode(
+      adapter.create({
+        model: 'member',
+        data: {
+          userId: 'usr_b',
+          organizationId: 'org_a',
+          tenantId: 'ten_b',
+          role: 'member',
+        },
+      }),
+      CROSS_TENANT_ORGANIZATION_ERROR,
+    );
+    expect(created).toHaveLength(0);
   });
 });
