@@ -65,7 +65,7 @@ export class AuthConfigController {
         ? {
             id: session.user.id,
             email: session.user.email,
-            role: session.user.role ?? 'admin',
+            role: session.user.role ?? 'user',
           }
         : undefined,
       target: 'auth-config',
