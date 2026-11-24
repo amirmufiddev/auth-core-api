@@ -6,6 +6,11 @@ import {
   uniqueIndex,
 } from 'drizzle-orm/pg-core';
 import { tenant } from './tenant';
+import {
+  organizationTenantScopeFk,
+  tenantIdNotBlank,
+  tenantScopeColumn,
+} from './tenant-scope';
 
 export const organization = pgTable(
   'organization',
@@ -13,7 +18,8 @@ export const organization = pgTable(
     id: text('id').primaryKey(),
     tenantId: text('tenant_id')
       .notNull()
-      .references(() => tenant.id, { onDelete: 'cascade' }),
+      .references(() => tenant.id, { onDelete: 'restrict' }),
+    tenantScope: tenantScopeColumn(),
     name: text('name').notNull(),
     slug: text('slug'),
     logo: text('logo'),
@@ -24,6 +30,11 @@ export const organization = pgTable(
     index('idx_organization_tenant_id').on(table.tenantId),
     index('idx_organization_slug').on(table.slug),
     uniqueIndex('uq_organization_tenant_slug').on(table.tenantId, table.slug),
+    uniqueIndex('uq_organization_id_tenant_scope').on(
+      table.id,
+      table.tenantScope,
+    ),
+    tenantIdNotBlank('ck_organization_tenant_id_not_blank', table.tenantId),
   ],
 );
 
@@ -35,8 +46,9 @@ export const organizationRole = pgTable(
   {
     id: text('id').primaryKey(),
     tenantId: text('tenant_id').references(() => tenant.id, {
-      onDelete: 'cascade',
+      onDelete: 'restrict',
     }),
+    tenantScope: tenantScopeColumn(),
     organizationId: text('organization_id')
       .notNull()
       .references(() => organization.id, { onDelete: 'cascade' }),
@@ -51,6 +63,17 @@ export const organizationRole = pgTable(
   (table) => [
     index('idx_organization_role_tenant_id').on(table.tenantId),
     index('idx_organization_role_organization_id').on(table.organizationId),
+    tenantIdNotBlank(
+      'ck_organization_role_tenant_id_not_blank',
+      table.tenantId,
+    ),
+    organizationTenantScopeFk(
+      'fk_organization_role_org_tenant_scope',
+      table.organizationId,
+      table.tenantScope,
+      organization.id,
+      organization.tenantScope,
+    ),
   ],
 );
 

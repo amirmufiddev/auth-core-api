@@ -9,14 +9,16 @@ import {
   type AnyPgColumn,
 } from 'drizzle-orm/pg-core';
 import { tenant } from './tenant';
+import { tenantIdNotBlank, tenantScopeColumn } from './tenant-scope';
 
 export const user = pgTable(
   'user',
   {
     id: text('id').primaryKey(),
     tenantId: text('tenant_id').references((): AnyPgColumn => tenant.id, {
-      onDelete: 'cascade',
+      onDelete: 'restrict',
     }),
+    tenantScope: tenantScopeColumn(),
     name: text('name').notNull(),
     email: text('email').notNull(),
     emailVerified: boolean('email_verified').default(false).notNull(),
@@ -72,6 +74,8 @@ export const user = pgTable(
       .where(
         sql`${table.tenantId} IS NOT NULL AND ${table.phoneNumber} IS NOT NULL`,
       ),
+    uniqueIndex('uq_user_id_tenant_scope').on(table.id, table.tenantScope),
+    tenantIdNotBlank('ck_user_tenant_id_not_blank', table.tenantId),
   ],
 );
 

@@ -1,9 +1,11 @@
+import { sql } from 'drizzle-orm';
 import {
   pgTable,
   text,
   integer,
   timestamp,
   index,
+  check,
   type AnyPgColumn,
 } from 'drizzle-orm/pg-core';
 import { authTiers } from './auth-tier';
@@ -40,6 +42,7 @@ export const tenant = pgTable(
   (table) => [
     index('idx_tenant_owner_user_id').on(table.ownerUserId),
     index('idx_tenant_tier_id').on(table.tierId),
+    check('ck_tenant_id_not_blank', sql`${table.id} <> ''`),
   ],
 );
 
