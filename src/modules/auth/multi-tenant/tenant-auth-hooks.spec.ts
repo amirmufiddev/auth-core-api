@@ -2,13 +2,18 @@ import * as crypto from 'node:crypto';
 import type { ConfigService } from '@nestjs/config';
 import { memoryAdapter, type MemoryDB } from 'better-auth/adapters/memory';
 import { describe, expect, it, mock } from 'bun:test';
-import { TenantContextStorage } from '@/modules/tenant';
+import {
+  type ResolvedTenantContext,
+  TenantContextStorage,
+} from '@/modules/tenant';
 import { createAuthInstance, type AuditLogInput } from '../auth';
 import {
   buildDefaultFeatureConfigFromEnv,
   type FeatureConfigMap,
 } from '../config/feature-catalog';
 import {
+  buildTenantIsolationPlugin,
+  CROSS_TENANT_ADMIN_ERROR,
   CROSS_TENANT_OAUTH_CLIENT_ERROR,
   resolveTenantCookieConfig,
   TENANT_SUSPENDED_ERROR,
@@ -780,5 +785,102 @@ describe('tenant-auth-hooks & multi-tenant Better Auth isolation', () => {
     expect(
       sharedDb.oauthAccessToken.some((r) => r.tenantId === 'ten_pos'),
     ).toBe(true);
+  });
+});
+
+describe('admin plugin cross-tenant guard', () => {
+  function platformStore(): ResolvedTenantContext {
+    return {
+      tenantId: null,
+      slug: '',
+      tierId: null,
+      configVersion: 1,
+      source: 'path',
+    };
+  }
+
+  function tenantStore(tenantId: string): ResolvedTenantContext {
+    return {
+      tenantId,
+      slug: 'pos-amir',
+      tierId: 'tier_business',
+      configVersion: 1,
+      source: 'path',
+    };
+  }
+
+  async function expectApiCode(promise: Promise<unknown>, code: string) {
+    try {
+      await promise;
+      throw new Error(`expected ${code}`);
+    } catch (error) {
+      if (error instanceof Error && error.message === `expected ${code}`) {
+        throw error;
+      }
+      expect(JSON.stringify(error)).toContain(code);
+    }
+  }
+
+  function adminHook(
+    staticTenantContext: ResolvedTenantContext,
+    user: { id: string; tenantId: string | null } | null,
+  ) {
+    const plugin = buildTenantIsolationPlugin({
+      staticTenantContext,
+      enabledPlugins: {
+        twoFactor: false,
+        passkey: false,
+        apiKey: false,
+        deviceAuthorization: false,
+        oauthProvider: false,
+      },
+    });
+    plugin.init({
+      adapter: {
+        findOne: async () => user,
+      },
+    });
+    const hook = plugin.hooks.before.find(
+      (entry: { matcher: (ctx: { path?: string }) => boolean }) =>
+        entry.matcher({ path: '/admin/list-users' }) &&
+        !entry.matcher({ path: '/sign-in/email' }),
+    );
+    if (!hook) throw new Error('admin hook missing');
+    return hook;
+  }
+
+  it('should reject a tenant admin on the platform auth instance', async () => {
+    const hook = adminHook(platformStore(), { id: 'usr_t', tenantId: 'ten_a' });
+    await expectApiCode(
+      hook.handler({
+        path: '/admin/list-users',
+        context: { session: { user: { id: 'usr_t' } } },
+        headers: new Headers(),
+      }),
+      CROSS_TENANT_ADMIN_ERROR,
+    );
+  });
+
+  it('should reject a platform admin on a tenant auth instance', async () => {
+    const hook = adminHook(tenantStore('ten_a'), { id: 'usr_p', tenantId: null });
+    await expectApiCode(
+      hook.handler({
+        path: '/admin/ban-user',
+        context: { session: { user: { id: 'usr_p' } } },
+        headers: new Headers(),
+      }),
+      CROSS_TENANT_ADMIN_ERROR,
+    );
+  });
+
+  it('should allow a tenant admin on that tenant auth instance', async () => {
+    const hook = adminHook(tenantStore('ten_a'), { id: 'usr_t', tenantId: 'ten_a' });
+    await expect(
+      hook.handler({
+        path: '/admin/list-users',
+        context: { session: { user: { id: 'usr_t' } } },
+        headers: new Headers(),
+      }),
+    ).resolves.toBeUndefined();
   });
 });

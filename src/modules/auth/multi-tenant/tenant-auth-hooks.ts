@@ -17,6 +17,7 @@ export const CROSS_TENANT_OAUTH_CLIENT_ERROR = 'CROSS_TENANT_OAUTH_CLIENT';
 export const CROSS_TENANT_ORGANIZATION_ERROR = 'CROSS_TENANT_ORGANIZATION';
 export const TENANT_SUSPENDED_ERROR = 'TENANT_SUSPENDED';
 export const CROSS_TENANT_SESSION_ERROR = 'CROSS_TENANT_SESSION';
+export const CROSS_TENANT_ADMIN_ERROR = 'CROSS_TENANT_ADMIN';
 
 export interface TenantCookieConfig {
   cookiePrefix: string;
@@ -701,6 +702,40 @@ export function buildTenantIsolationPlugin(
                 code: CROSS_TENANT_ORGANIZATION_ERROR,
                 message:
                   'Organisasi tidak termasuk dalam tenant yang aktif pada request ini.',
+              });
+            }
+          }),
+        },
+        {
+          matcher: (ctx: { path?: string }) =>
+            ctx.path === '/admin' || Boolean(ctx.path?.startsWith('/admin/')),
+          handler: createAuthMiddleware(async (ctx) => {
+            const contextSession = ctx.context?.session as
+              | { user?: { id?: string } }
+              | undefined;
+            const userId = contextSession?.user?.id;
+            if (!userId) {
+              return;
+            }
+            if (!unscopedAdapter.findOne) {
+              throw new APIError('FORBIDDEN', {
+                code: CROSS_TENANT_ADMIN_ERROR,
+                message: 'Aksi admin hanya sah di dalam tenant akun ini.',
+              });
+            }
+            const row = (await unscopedAdapter.findOne({
+              model: 'user',
+              where: [{ field: 'id', value: userId, operator: 'eq' }],
+            })) as { tenantId?: string | null } | null;
+            const actorTenantId = row?.tenantId ?? null;
+            const requestTenantId = getEffectiveTenantContext(
+              options.staticTenantContext,
+              ctx.context,
+            ).tenantId;
+            if (!row || actorTenantId !== requestTenantId) {
+              throw new APIError('FORBIDDEN', {
+                code: CROSS_TENANT_ADMIN_ERROR,
+                message: 'Aksi admin hanya sah di dalam tenant akun ini.',
               });
             }
           }),
