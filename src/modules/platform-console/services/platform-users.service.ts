@@ -84,6 +84,7 @@ export class PlatformUsersService {
 
     return {
       id: found.id,
+      tenantId: null,
       name: found.name,
       email: found.email,
       username: found.username ?? undefined,

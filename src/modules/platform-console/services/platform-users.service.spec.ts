@@ -201,6 +201,27 @@ describe('PlatformUsersService', () => {
     });
   });
 
+  it('should include tenantId null on getMe for platform users', async () => {
+    const mocks = createMocks();
+    (
+      mocks.userRepo.findPlatformById as ReturnType<typeof mock>
+    ).mockResolvedValue(makeUserRow({ id: 'usr_plat_1' }));
+
+    const service = new PlatformUsersService(
+      mocks.userRepo,
+      mocks.sessionRepo,
+      mocks.auditRepo,
+      mocks.featureConfig,
+      mocks.emailService,
+      mocks.configService,
+    );
+
+    await expect(service.getMe('usr_plat_1')).resolves.toMatchObject({
+      id: 'usr_plat_1',
+      tenantId: null,
+    });
+  });
+
   it('should reject tenant-scoped users when findPlatformById returns null', async () => {
     const mocks = createMocks();
     (

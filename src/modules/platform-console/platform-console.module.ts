@@ -4,6 +4,7 @@ import { AuthModule } from '@/modules/auth';
 import { EmailModule } from '@/modules/email';
 import { FeatureTierModule } from '@/modules/feature-tier';
 import { RbacModule } from '@/modules/rbac';
+import { ActorPermissionsController } from './controllers/actor-permissions.controller';
 import { AuthConfigController } from './controllers/auth-config.controller';
 import { PlatformConsoleController } from './controllers/platform-console.controller';
 import {
@@ -26,6 +27,7 @@ import { PlatformOrganizationRepository } from './repositories/platform-organiza
 import { PlatformRoleRepository } from './repositories/platform-role.repository';
 import { PlatformSessionRepository } from './repositories/platform-session.repository';
 import { PlatformUserRepository } from './repositories/platform-user.repository';
+import { PlatformActorPermissionsService } from './services/platform-actor-permissions.service';
 import { PlatformApiKeysService } from './services/platform-api-keys.service';
 import { PlatformAuditService } from './services/platform-audit.service';
 import { PlatformMetricsService } from './services/platform-metrics.service';
@@ -43,7 +45,11 @@ import { PlatformUsersService } from './services/platform-users.service';
     FeatureTierModule,
     RbacModule,
   ],
-  controllers: [AuthConfigController, PlatformConsoleController],
+  controllers: [
+    ActorPermissionsController,
+    AuthConfigController,
+    PlatformConsoleController,
+  ],
   providers: [
     {
       provide: PLATFORM_USER_REPOSITORY_TOKEN,
@@ -77,6 +83,7 @@ import { PlatformUsersService } from './services/platform-users.service';
       provide: PLATFORM_SSO_PROVIDER_REPOSITORY_TOKEN,
       useClass: PlatformSsoProviderRepository,
     },
+    PlatformActorPermissionsService,
     PlatformAuditService,
     PlatformMetricsService,
     PlatformUsersService,
