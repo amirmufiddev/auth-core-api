@@ -109,10 +109,39 @@ export class FetchSocialBridgeOAuthClient implements ISocialBridgeOAuthClient {
     }
 
     const profile = (await userRes.json()) as Record<string, unknown>;
+    const providerKey = input.provider.toLowerCase();
     const providerAccountId = String(profile.sub ?? profile.id ?? '');
-    const email = String(profile.email ?? '').trim().toLowerCase();
+    let email = String(profile.email ?? '').trim().toLowerCase();
+    const rawVerified = profile.email_verified ?? profile.verified;
+    let emailVerified = Boolean(rawVerified);
+
+    if (
+      providerKey === 'github' &&
+      (!email || typeof rawVerified !== 'boolean')
+    ) {
+      const emailsRes = await fetch('https://api.github.com/user/emails', {
+        headers: {
+          authorization: `Bearer ${tokenJson.access_token}`,
+          accept: 'application/json',
+        },
+      });
+      if (emailsRes.ok) {
+        const emails = (await emailsRes.json()) as Array<{
+          email?: string;
+          primary?: boolean;
+          verified?: boolean;
+        }>;
+        const picked =
+          emails.find((e) => e.primary && e.verified && e.email) ??
+          emails.find((e) => e.verified && e.email);
+        if (picked?.email) {
+          email = picked.email.trim().toLowerCase();
+          emailVerified = true;
+        }
+      }
+    }
+
     const name = String(profile.name ?? profile.login ?? email);
-    const emailVerified = Boolean(profile.email_verified ?? profile.verified);
 
     if (!providerAccountId || !email) {
       throw new BadGatewayException({

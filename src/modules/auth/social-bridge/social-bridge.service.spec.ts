@@ -14,13 +14,13 @@ import {
   type TenantSummaryCache,
 } from '@/modules/tenant';
 import { SocialBridgeController } from './social-bridge.controller';
+import { FetchSocialBridgeOAuthClient } from './social-bridge.oauth-client';
 import {
   SOCIAL_BRIDGE_OAUTH_CLIENT_TOKEN,
   SOCIAL_BRIDGE_REPOSITORY_TOKEN,
   SocialBridgeService,
   type ISocialBridgeOAuthClient,
   type ISocialBridgeRepository,
-  type SocialExchangePayload,
 } from './social-bridge.service';
 
 function createInMemoryRedisMock() {
@@ -412,5 +412,93 @@ describe('SocialBridgeService & SocialBridgeController', () => {
     expect(cookieStr.toLowerCase()).not.toContain('domain=');
 
     await app.close();
+  });
+
+  it('throws explicit error when BETTER_AUTH_SECRET is missing or empty', () => {
+    const prevEnvSecret = process.env.BETTER_AUTH_SECRET;
+    delete process.env.BETTER_AUTH_SECRET;
+
+    try {
+      const redis = createInMemoryRedisMock();
+      const emptyConfig = createConfigMock({ BETTER_AUTH_SECRET: '' });
+      const repo = {} as ISocialBridgeRepository;
+      const oauthClient = {} as ISocialBridgeOAuthClient;
+
+      const service = new SocialBridgeService(
+        emptyConfig,
+        redis as unknown as ConstructorParameters<typeof SocialBridgeService>[1],
+        repo,
+        oauthClient,
+      );
+
+      expect(() =>
+        service.createSignedState({
+          tenantId: 'ten_pos',
+          tenantSlug: 'pos-amir',
+          mode: 'subdomain',
+          provider: 'google',
+          returnTo: '/dashboard',
+        }),
+      ).toThrow('BETTER_AUTH_SECRET is required for social bridge state signing');
+
+      expect(() =>
+        service.verifySignedState('abc.def', 'google'),
+      ).toThrow('BETTER_AUTH_SECRET is required for social bridge state signing');
+    } finally {
+      if (prevEnvSecret !== undefined) {
+        process.env.BETTER_AUTH_SECRET = prevEnvSecret;
+      }
+    }
+  });
+
+  it('FetchSocialBridgeOAuthClient falls back to GitHub /user/emails when /user email is null or verified is missing', async () => {
+    const originalFetch = globalThis.fetch;
+    const fetchMock = mock(async (url: string | URL | Request) => {
+      const target = String(url);
+      if (target === 'https://github.com/login/oauth/access_token') {
+        return new Response(JSON.stringify({ access_token: 'gh-token-1' }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        });
+      }
+      if (target === 'https://api.github.com/user') {
+        return new Response(
+          JSON.stringify({ id: 42, login: 'amirmufid', name: 'Amir Mufid', email: null }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        );
+      }
+      if (target === 'https://api.github.com/user/emails') {
+        return new Response(
+          JSON.stringify([
+            { email: 'secondary@example.com', primary: false, verified: true },
+            { email: 'Amir@Pos.id', primary: true, verified: true },
+          ]),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        );
+      }
+      return new Response('Not Found', { status: 404 });
+    });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    try {
+      const client = new FetchSocialBridgeOAuthClient();
+      const profile = await client.exchangeCodeForProfile({
+        provider: 'github',
+        code: 'gh-code-1',
+        clientId: 'gh-id',
+        clientSecret: 'gh-secret',
+        redirectUri: 'https://auth.authcore.local/api/social-bridge/callback/github',
+      });
+
+      expect(profile).toEqual({
+        providerAccountId: '42',
+        email: 'amir@pos.id',
+        name: 'Amir Mufid',
+        emailVerified: true,
+      });
+      expect(fetchMock).toHaveBeenCalledTimes(3);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
   });
 });

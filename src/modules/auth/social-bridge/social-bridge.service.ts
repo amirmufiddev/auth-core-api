@@ -9,6 +9,13 @@ import { ConfigService } from '@nestjs/config';
 import * as crypto from 'node:crypto';
 import { BETTER_AUTH_REDIS_CLIENT } from '@/common/auth/better-auth-cache.module';
 import {
+  createSignedState,
+  getCentralCallbackBaseUrl,
+  validateReturnTo,
+  verifySignedState,
+  type SignedSocialStatePayload,
+} from './social-bridge-state.helper';
+import {
   SOCIAL_BRIDGE_OAUTH_CLIENT_TOKEN,
   SOCIAL_PROVIDER_ENDPOINTS,
   type ISocialBridgeOAuthClient,
@@ -26,6 +33,7 @@ export {
   SOCIAL_BRIDGE_REPOSITORY_TOKEN,
   type ISocialBridgeRepository,
 } from './social-bridge.repository';
+export type { SignedSocialStatePayload } from './social-bridge-state.helper';
 
 export interface SocialExchangePayload {
   tenantId: string;
@@ -36,17 +44,6 @@ export interface SocialExchangePayload {
   name: string;
   emailVerified: boolean;
   returnTo: string;
-}
-
-export interface SignedSocialStatePayload {
-  tenantId: string;
-  tenantSlug: string;
-  mode: 'subdomain' | 'path';
-  provider: string;
-  returnOrigin: string;
-  returnTo: string;
-  nonce: string;
-  exp: number;
 }
 
 export interface SocialBridgeRedisClient {
@@ -60,7 +57,6 @@ export interface SocialBridgeRedisClient {
 }
 
 const EXCHANGE_CODE_TTL_SECONDS = 45;
-const STATE_TTL_MS = 5 * 60 * 1000;
 const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const EXCHANGE_REDIS_PREFIX = 'authcore:social-bridge:code:';
 
@@ -76,68 +72,6 @@ export class SocialBridgeService {
     private readonly oauthClient: ISocialBridgeOAuthClient,
   ) {}
 
-  private getSigningSecret(): string {
-    return (
-      this.configService.get<string>('BETTER_AUTH_SECRET') ??
-      process.env.BETTER_AUTH_SECRET ??
-      ''
-    );
-  }
-
-  private getBaseUrl(): URL {
-    const raw =
-      this.configService.get<string>('BETTER_AUTH_URL') ??
-      process.env.BETTER_AUTH_URL ??
-      'http://localhost:2001';
-    return new URL(raw);
-  }
-
-  private getCentralCallbackBaseUrl(): string {
-    const configured =
-      this.configService.get<string>('SOCIAL_CALLBACK_BASE_URL') ??
-      process.env.SOCIAL_CALLBACK_BASE_URL;
-    if (configured && configured.trim() !== '') {
-      return configured.replace(/\/+$/, '');
-    }
-    return this.getBaseUrl().origin;
-  }
-
-  private buildServerReturnOrigin(
-    tenantSlug: string,
-    mode: 'subdomain' | 'path',
-  ): string {
-    const baseUrl = this.getBaseUrl();
-    if (mode === 'path') {
-      return baseUrl.origin;
-    }
-    const baseDomain = (
-      this.configService.get<string>('TENANT_BASE_DOMAIN') ??
-      process.env.TENANT_BASE_DOMAIN ??
-      'authcore.local'
-    )
-      .trim()
-      .toLowerCase();
-    const portSuffix = baseUrl.port ? `:${baseUrl.port}` : '';
-    return `${baseUrl.protocol}//${tenantSlug}.${baseDomain}${portSuffix}`;
-  }
-
-  private validateReturnTo(returnTo?: string): string {
-    const candidate = returnTo === undefined || returnTo === '' ? '/' : returnTo;
-    if (
-      typeof candidate !== 'string' ||
-      !candidate.startsWith('/') ||
-      candidate.startsWith('//') ||
-      candidate.includes('\\')
-    ) {
-      throw new BadRequestException({
-        statusCode: 400,
-        code: 'INVALID_RETURN_TO',
-        message: 'Parameter returnTo harus berupa relative path yang aman.',
-      });
-    }
-    return candidate;
-  }
-
   createSignedState(input: {
     tenantId: string;
     tenantSlug: string;
@@ -145,94 +79,14 @@ export class SocialBridgeService {
     provider: string;
     returnTo?: string;
   }): string {
-    const safeReturnTo = this.validateReturnTo(input.returnTo);
-    const returnOrigin = this.buildServerReturnOrigin(
-      input.tenantSlug,
-      input.mode,
-    );
-
-    const payload: SignedSocialStatePayload = {
-      tenantId: input.tenantId,
-      tenantSlug: input.tenantSlug,
-      mode: input.mode,
-      provider: input.provider.toLowerCase(),
-      returnOrigin,
-      returnTo: safeReturnTo,
-      nonce: crypto.randomBytes(16).toString('hex'),
-      exp: Date.now() + STATE_TTL_MS,
-    };
-
-    const encoded = Buffer.from(JSON.stringify(payload), 'utf8').toString(
-      'base64url',
-    );
-    const sig = crypto
-      .createHmac('sha256', this.getSigningSecret())
-      .update(encoded)
-      .digest('base64url');
-
-    return `${encoded}.${sig}`;
+    return createSignedState(this.configService, input);
   }
 
   verifySignedState(
     state: string,
     expectedProvider: string,
   ): SignedSocialStatePayload {
-    const parts = state.split('.');
-    if (parts.length !== 2 || !parts[0] || !parts[1]) {
-      throw new UnauthorizedException({
-        statusCode: 401,
-        code: 'INVALID_SOCIAL_STATE',
-        message: 'State OAuth tidak valid.',
-      });
-    }
-
-    const [encoded, providedSig] = parts;
-    const expectedSig = crypto
-      .createHmac('sha256', this.getSigningSecret())
-      .update(encoded)
-      .digest('base64url');
-
-    const providedBuf = Buffer.from(providedSig, 'utf8');
-    const expectedBuf = Buffer.from(expectedSig, 'utf8');
-    if (
-      providedBuf.length !== expectedBuf.length ||
-      !crypto.timingSafeEqual(providedBuf, expectedBuf)
-    ) {
-      throw new UnauthorizedException({
-        statusCode: 401,
-        code: 'INVALID_SOCIAL_STATE',
-        message: 'Signature state OAuth tidak valid.',
-      });
-    }
-
-    let parsed: SignedSocialStatePayload;
-    try {
-      parsed = JSON.parse(
-        Buffer.from(encoded, 'base64url').toString('utf8'),
-      ) as SignedSocialStatePayload;
-    } catch {
-      throw new UnauthorizedException({
-        statusCode: 401,
-        code: 'INVALID_SOCIAL_STATE',
-        message: 'Payload state OAuth rusak.',
-      });
-    }
-
-    if (
-      !parsed.tenantId ||
-      !parsed.tenantSlug ||
-      parsed.provider !== expectedProvider.toLowerCase() ||
-      typeof parsed.exp !== 'number' ||
-      parsed.exp < Date.now()
-    ) {
-      throw new UnauthorizedException({
-        statusCode: 401,
-        code: 'INVALID_SOCIAL_STATE',
-        message: 'State OAuth kedaluwarsa atau tidak cocok.',
-      });
-    }
-
-    return parsed;
+    return verifySignedState(this.configService, state, expectedProvider);
   }
 
   async buildAuthorizeRedirectUrl(input: {
@@ -265,7 +119,7 @@ export class SocialBridgeService {
     }
 
     const state = this.createSignedState(input);
-    const redirectUri = `${this.getCentralCallbackBaseUrl()}/api/social-bridge/callback/${providerKey}`;
+    const redirectUri = `${getCentralCallbackBaseUrl(this.configService)}/api/social-bridge/callback/${providerKey}`;
     const url = new URL(endpoints.authorizeUrl);
     url.searchParams.set('client_id', credentials.clientId);
     url.searchParams.set('redirect_uri', redirectUri);
@@ -295,7 +149,7 @@ export class SocialBridgeService {
       });
     }
 
-    const redirectUri = `${this.getCentralCallbackBaseUrl()}/api/social-bridge/callback/${providerKey}`;
+    const redirectUri = `${getCentralCallbackBaseUrl(this.configService)}/api/social-bridge/callback/${providerKey}`;
     const profile = await this.oauthClient.exchangeCodeForProfile({
       provider: providerKey,
       code: input.code,
@@ -417,7 +271,7 @@ export class SocialBridgeService {
 
     return {
       sessionToken,
-      redirectTo: this.validateReturnTo(payload.returnTo),
+      redirectTo: validateReturnTo(payload.returnTo),
     };
   }
 }
