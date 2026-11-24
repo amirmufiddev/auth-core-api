@@ -42,7 +42,7 @@ export class AuthConfigController {
 
   @Put()
   @ApiBearerAuth()
-  @RequirePlatformPermission('authConfig:configure')
+  @RequirePlatformPermission('authFeature:configure')
   @ApiOperation({
     summary:
       'Simpan konfigurasi runtime fitur Better Auth & reload Better Auth instance',

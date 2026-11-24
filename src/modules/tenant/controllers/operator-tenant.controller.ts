@@ -26,7 +26,7 @@ export class OperatorTenantController {
   constructor(private readonly tenantService: TenantService) {}
 
   @Get()
-  @RequirePlatformPermission('organization:read')
+  @RequirePlatformPermission('tenant:read')
   @ApiOperation({ summary: 'Daftar tenant multi-tenant terpaginasi' })
   async listTenants(@Query() query: ListTenantsQueryDto) {
     const result = await this.tenantService.listTenants({
@@ -46,7 +46,7 @@ export class OperatorTenantController {
   }
 
   @Get(':id')
-  @RequirePlatformPermission('organization:read')
+  @RequirePlatformPermission('tenant:read')
   @ApiOperation({ summary: 'Detail tenant berdasarkan ID' })
   async getTenant(@Param('id') id: string): Promise<TenantResponseDto> {
     const tenant = await this.tenantService.getTenantById(id);
@@ -54,7 +54,7 @@ export class OperatorTenantController {
   }
 
   @Post()
-  @RequirePlatformPermission('organization:create')
+  @RequirePlatformPermission('tenant:create')
   @ApiOperation({ summary: 'Buat tenant baru dengan validasi reserved slug' })
   async createTenant(
     @Body() body: CreateTenantDto,
@@ -64,7 +64,7 @@ export class OperatorTenantController {
   }
 
   @Patch(':id')
-  @RequirePlatformPermission('organization:update')
+  @RequirePlatformPermission('tenant:update')
   @ApiOperation({ summary: 'Perbarui tenant (slug bersifat immutable)' })
   async updateTenant(
     @Param('id') id: string,
@@ -75,7 +75,7 @@ export class OperatorTenantController {
   }
 
   @Patch(':id/tier')
-  @RequirePlatformPermission('organization:update')
+  @RequirePlatformPermission('tenant:update')
   @ApiOperation({ summary: 'Ubah tier tenant dan naikkan configVersion' })
   async changeTier(
     @Param('id') id: string,
@@ -86,7 +86,7 @@ export class OperatorTenantController {
   }
 
   @Post(':id/suspend')
-  @RequirePlatformPermission('organization:update')
+  @RequirePlatformPermission('tenant:update')
   @ApiOperation({ summary: 'Tangguhkan tenant dan invalidasi slug cache' })
   async suspendTenant(@Param('id') id: string): Promise<TenantResponseDto> {
     const updated = await this.tenantService.suspendTenant(id);
@@ -94,7 +94,7 @@ export class OperatorTenantController {
   }
 
   @Post(':id/activate')
-  @RequirePlatformPermission('organization:update')
+  @RequirePlatformPermission('tenant:update')
   @ApiOperation({ summary: 'Aktifkan kembali tenant' })
   async activateTenant(@Param('id') id: string): Promise<TenantResponseDto> {
     const updated = await this.tenantService.activateTenant(id);

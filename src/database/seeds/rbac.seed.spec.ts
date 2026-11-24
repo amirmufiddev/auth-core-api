@@ -14,8 +14,8 @@ describe('RBAC Seeder', () => {
       (r) => r.resource === 'member' && r.action === 'read',
     );
     expect(memberRead).toBeDefined();
-    expect(memberRead?.resourceDisplayName).toBe('member');
-    expect(memberRead?.actionDisplayName).toBe('read');
+    expect(memberRead?.resourceDisplayName).toBe('Anggota');
+    expect(memberRead?.actionDisplayName).toBe('Lihat anggota');
   });
 
   it('should produce templates for owner, admin, and member from buildRbacRoleTemplateRows', () => {

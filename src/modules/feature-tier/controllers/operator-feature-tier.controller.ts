@@ -22,14 +22,14 @@ export class OperatorFeatureTierController {
   constructor(private readonly catalogService: FeatureCatalogService) {}
 
   @Get('features')
-  @RequirePlatformPermission('authConfig:configure')
+  @RequirePlatformPermission('tier:read')
   @ApiOperation({ summary: 'Daftar seluruh fitur pada katalog Auth Core' })
   async listFeatures() {
     return this.catalogService.listFeatures();
   }
 
   @Patch('features/:featureId/status')
-  @RequirePlatformPermission('authConfig:configure')
+  @RequirePlatformPermission('tier:update')
   @ApiOperation({
     summary:
       'Ubah status fitur (active/disabled/coming_soon) dan invalidasi catalogVersion secara O(1)',
@@ -42,14 +42,14 @@ export class OperatorFeatureTierController {
   }
 
   @Get('tiers')
-  @RequirePlatformPermission('authConfig:configure')
+  @RequirePlatformPermission('tier:read')
   @ApiOperation({ summary: 'Daftar seluruh tier beserta matriks fiturnya' })
   async listTiers() {
     return this.catalogService.listTiers();
   }
 
   @Put('tiers/:tierId/features')
-  @RequirePlatformPermission('authConfig:configure')
+  @RequirePlatformPermission('tier:update')
   @ApiOperation({
     summary:
       'Perbarui matriks fitur untuk tier tertentu dan invalidasi catalogVersion secara O(1)',

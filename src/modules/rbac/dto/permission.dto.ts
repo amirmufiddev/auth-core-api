@@ -47,7 +47,7 @@ export class PermissionsResponseDto {
 export class PermissionCodesResponseDto {
   @ApiProperty({
     type: [String],
-    example: ['member:read', 'broadcast:trigger'],
+    example: ['member:read', 'feature:update'],
     description: 'Daftar flat kode permission',
   })
   codes!: string[];

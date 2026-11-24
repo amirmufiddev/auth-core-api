@@ -6,7 +6,9 @@ describe('assertPlatformPermissionMatrix', () => {
   it('accepts actions that exist in the platform catalog', () => {
     expect(() =>
       assertPlatformPermissionMatrix({
-        user: ['read', 'ban'],
+        user: ['read', 'impersonate'],
+        staff: ['ban'],
+        tenant: ['read'],
         auditLog: ['export'],
       }),
     ).not.toThrow();

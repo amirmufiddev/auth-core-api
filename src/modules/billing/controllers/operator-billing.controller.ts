@@ -31,7 +31,7 @@ export class OperatorBillingController {
   constructor(private readonly billingService: BillingService) {}
 
   @Get()
-  @RequirePlatformPermission('organization:read')
+  @RequirePlatformPermission('billing:read')
   @ApiOperation({ summary: 'Daftar catatan billing ledger terpaginasi' })
   async listRecords(@Query() query: ListBillingRecordsQueryDto) {
     const result = await this.billingService.listRecords({
@@ -51,7 +51,7 @@ export class OperatorBillingController {
   }
 
   @Get(':id')
-  @RequirePlatformPermission('organization:read')
+  @RequirePlatformPermission('billing:read')
   @ApiOperation({ summary: 'Detail catatan billing berdasarkan ID' })
   async getRecord(@Param('id') id: string): Promise<BillingRecordResponseDto> {
     const record = await this.billingService.getRecordById(id);
@@ -59,7 +59,7 @@ export class OperatorBillingController {
   }
 
   @Post()
-  @RequirePlatformPermission('organization:update')
+  @RequirePlatformPermission('billing:create')
   @ApiOperation({
     summary:
       'Catat transaksi billing ke ledger dan perbarui tenant.billingStatus',

@@ -131,7 +131,7 @@ export class PlatformConsoleController {
   }
 
   @Post('users')
-  @RequirePlatformPermission('user:create')
+  @RequirePlatformPermission('staff:create')
   @ApiOperation({ summary: 'Buat user platform baru dari konsol admin' })
   async createUser(
     @Body() body: CreateConsoleUserDto,
@@ -141,7 +141,7 @@ export class PlatformConsoleController {
   }
 
   @Patch('users/:id')
-  @RequirePlatformPermission('user:update')
+  @RequirePlatformPermission('staff:update')
   @ApiOperation({ summary: 'Perbarui data user platform' })
   async updateUser(
     @Param('id') id: string,
@@ -152,7 +152,7 @@ export class PlatformConsoleController {
   }
 
   @Post('users/:id/ban')
-  @RequirePlatformPermission('user:ban')
+  @RequirePlatformPermission('staff:ban')
   @ApiOperation({ summary: 'Ban atau unban user platform' })
   async banUser(
     @Param('id') id: string,
@@ -167,7 +167,7 @@ export class PlatformConsoleController {
   }
 
   @Delete('users/:id')
-  @RequirePlatformPermission('user:delete')
+  @RequirePlatformPermission('staff:delete')
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({ summary: 'Hapus user platform permanen' })
   async deleteUser(

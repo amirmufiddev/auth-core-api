@@ -322,7 +322,7 @@ describe('PlatformSessionsService, PlatformAuditService, PlatformMetricsService 
       action: 'read',
     });
     expect(getPerm(PlatformConsoleController.prototype, 'createUser')).toEqual({
-      resource: 'user',
+      resource: 'staff',
       action: 'create',
     });
     expect(getPerm(PlatformConsoleController.prototype, 'deleteRole')).toEqual({
@@ -369,7 +369,7 @@ describe('PlatformSessionsService, PlatformAuditService, PlatformMetricsService 
       getPerm(AuthConfigController.prototype, 'getConfig'),
     ).toBeUndefined();
     expect(getPerm(AuthConfigController.prototype, 'updateConfig')).toEqual({
-      resource: 'authConfig',
+      resource: 'authFeature',
       action: 'configure',
     });
   });

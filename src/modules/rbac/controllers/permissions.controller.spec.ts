@@ -139,7 +139,7 @@ describe('PermissionsController', () => {
       });
 
       expect(result.codes).toContain('member:read');
-      expect(result.codes).toContain('broadcast:trigger');
+      expect(result.codes).toContain('feature:read');
     });
 
     it('should document response as PermissionCodesResponseDto', () => {

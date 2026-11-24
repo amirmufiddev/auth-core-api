@@ -13,9 +13,12 @@ describe('buildAdminRoleDbPayload', () => {
       string
     >;
 
-    expect(permission.broadcast).toEqual(['trigger']);
-    expect(permission.order).toBeUndefined();
-    expect(scopes['broadcast:trigger']).toBe('organization');
+    expect(permission.member).toContain('invite');
+    expect(permission.feature).toContain('update');
+    expect(permission.organization).not.toContain('delete');
+    expect(permission.broadcast).toBeUndefined();
+    expect(scopes['member:read']).toBe('organization');
+    expect(scopes['feature:update']).toBe('organization');
     expect(scopes['payment:read']).toBeUndefined();
   });
 });
