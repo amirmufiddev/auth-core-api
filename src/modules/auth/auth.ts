@@ -1377,32 +1377,73 @@ const buildPluginsConfig = (
     );
   }
 
+  const resolveAuthClientPageOrigin = (
+    clientUrl: string | undefined,
+    baseUrl: string,
+    tenantContext: ResolvedTenantContext | null | undefined,
+    tenantBaseDomain: string,
+  ): string => {
+    if (!clientUrl) return '';
+    try {
+      const clientParsed = new URL(clientUrl);
+      const baseParsed = new URL(baseUrl);
+      if (clientParsed.origin === baseParsed.origin) {
+        return '';
+      }
+      if (tenantContext?.source === 'subdomain' && tenantContext.slug) {
+        const host = clientParsed.hostname.toLowerCase();
+        const portSuffix = clientParsed.port ? `:${clientParsed.port}` : '';
+        if (host === 'localhost' || host.endsWith('.localhost')) {
+          return `${clientParsed.protocol}//${tenantContext.slug}.localhost${portSuffix}`;
+        }
+        if (tenantBaseDomain) {
+          return `${clientParsed.protocol}//${tenantContext.slug}.${tenantBaseDomain}${portSuffix}`;
+        }
+      }
+      return clientParsed.origin;
+    } catch {
+      return '';
+    }
+  };
+
   const pathPrefix =
     deps.tenantContext?.source === 'path' && deps.tenantContext.slug
       ? `/t/${deps.tenantContext.slug}`
       : '';
+  const oauthPageOrigin = resolveAuthClientPageOrigin(
+    clientUrl,
+    baseUrl,
+    deps.tenantContext,
+    deps.tenantBaseDomain ||
+      deps.configService.get<string>('TENANT_BASE_DOMAIN', { infer: true }) ||
+      process.env.TENANT_BASE_DOMAIN ||
+      'authcore.local',
+  );
 
   // @better-auth/mcp wraps oauthProvider internally and forbids duplicate registration.
   if (fc && isEnabled(fc, 'mcp', false)) {
     const configuredLoginPage = String(
       getSetting(fc, 'mcp', 'loginPage', '/login'),
     );
-    const mcpLoginPage =
+    const mcpLoginPath =
       pathPrefix && configuredLoginPage === '/login'
         ? `${pathPrefix}/login`
         : configuredLoginPage;
+    const mcpLoginPage = mcpLoginPath.startsWith('http')
+      ? mcpLoginPath
+      : `${oauthPageOrigin}${mcpLoginPath}`;
     pluginsList.push(
       mcp({
         loginPage: mcpLoginPage,
-        consentPage: `${pathPrefix}/consent`,
+        consentPage: `${oauthPageOrigin}${pathPrefix}/consent`,
         resource: String(getSetting(fc, 'mcp', 'resource', `${baseUrl}/mcp`)),
       }),
     );
   } else if (fc && isEnabled(fc, 'oauthProvider', false)) {
     pluginsList.push(
       oauthProvider({
-        loginPage: `${pathPrefix}/login`,
-        consentPage: `${pathPrefix}/consent`,
+        loginPage: `${oauthPageOrigin}${pathPrefix}/login`,
+        consentPage: `${oauthPageOrigin}${pathPrefix}/consent`,
         accessTokenExpiresIn: resolveClampedAccessTokenTtlSeconds(
           getSetting(fc, 'oauthProvider', 'accessTokenExpiresIn', 900),
         ),
