@@ -137,34 +137,91 @@ describe('CacheService', () => {
     });
   });
 
-  describe('buildKey', () => {
-    it('should include tenantId when RlsContext has organizationId', () => {
-      jest
-        .spyOn(RlsContext, 'getCurrentOrganizationId')
-        .mockReturnValue('tenant-123');
-      const key = service.buildKey('user:role:abc', 'app');
-      expect(key).toBe('app:tenant-123:user:role:abc');
+  describe('buildTenantKey', () => {
+    it('should prefix a tenant id from the current store', () => {
+      jest.spyOn(RlsContext, 'hasStore').mockReturnValue(true);
+      jest.spyOn(RlsContext, 'getCurrentTenantId').mockReturnValue('ten_123');
+      expect(service.buildTenantKey('user:role:abc', 'app')).toBe(
+        'app:tenant:ten_123:user:role:abc',
+      );
     });
 
-    it('should omit tenantId when RlsContext organizationId is null', () => {
-      jest.spyOn(RlsContext, 'getCurrentOrganizationId').mockReturnValue(null);
-      const key = service.buildKey('user:role:abc', 'app');
-      expect(key).toBe('app:user:role:abc');
+    it('should use the platform prefix when the store has a null tenant', () => {
+      jest.spyOn(RlsContext, 'hasStore').mockReturnValue(true);
+      jest.spyOn(RlsContext, 'getCurrentTenantId').mockReturnValue(null);
+      expect(service.buildTenantKey('user:role:abc', 'app')).toBe(
+        'app:platform:user:role:abc',
+      );
+    });
+
+    it('should throw when no store is active', () => {
+      jest.spyOn(RlsContext, 'hasStore').mockReturnValue(false);
+      expect(() => service.buildTenantKey('user:role:abc', 'app')).toThrow(
+        'CacheScopeMissingError',
+      );
     });
   });
 
-  describe('setScoped', () => {
-    it('should set key with explicit tenantId prefix', async () => {
+  describe('buildOrganizationKey', () => {
+    it('should prefix the current organization id', () => {
+      jest.spyOn(RlsContext, 'hasStore').mockReturnValue(true);
+      jest
+        .spyOn(RlsContext, 'getCurrentOrganizationId')
+        .mockReturnValue('org_9');
+      expect(service.buildOrganizationKey('member:abc', 'app')).toBe(
+        'app:org:org_9:member:abc',
+      );
+    });
+
+    it('should throw when the store has no organization', () => {
+      jest.spyOn(RlsContext, 'hasStore').mockReturnValue(true);
+      jest.spyOn(RlsContext, 'getCurrentOrganizationId').mockReturnValue(null);
+      expect(() => service.buildOrganizationKey('member:abc', 'app')).toThrow(
+        'CacheScopeMissingError',
+      );
+    });
+  });
+
+  describe('setTenantScoped', () => {
+    it('should write a platform key when tenantId is null', async () => {
       mockCacheManager.set.mockResolvedValueOnce(undefined);
-      await service.setScoped(
-        'tenant-999',
+      await service.setTenantScoped(null, 'user:role:xyz', 'val', 'app', 3000);
+      expect(mockCacheManager.set).toHaveBeenCalledWith(
+        'app:platform:user:role:xyz',
+        'val',
+        3000,
+      );
+    });
+
+    it('should write a tenant key when tenantId is set', async () => {
+      mockCacheManager.set.mockResolvedValueOnce(undefined);
+      await service.setTenantScoped(
+        'ten_999',
         'user:role:xyz',
         'val',
         'app',
         3000,
       );
       expect(mockCacheManager.set).toHaveBeenCalledWith(
-        'app:tenant-999:user:role:xyz',
+        'app:tenant:ten_999:user:role:xyz',
+        'val',
+        3000,
+      );
+    });
+  });
+
+  describe('setOrganizationScoped', () => {
+    it('should write an organization key', async () => {
+      mockCacheManager.set.mockResolvedValueOnce(undefined);
+      await service.setOrganizationScoped(
+        'org_3',
+        'member:xyz',
+        'val',
+        'app',
+        3000,
+      );
+      expect(mockCacheManager.set).toHaveBeenCalledWith(
+        'app:org:org_3:member:xyz',
         'val',
         3000,
       );

@@ -4,6 +4,7 @@ import type { Cache } from 'cache-manager';
 import { AppLoggerService } from '@/logger/logger.service';
 import { RlsContext } from '@/shared/database/rls-context';
 import { DEFAULT_TTL_MS } from './cache.constants';
+import { CacheScopeMissingError } from './cache-scope.error';
 
 @Injectable()
 export class CacheService {
@@ -96,29 +97,51 @@ export class CacheService {
     return value;
   }
 
-  /**
-   * Build a tenant-scoped key using RlsContext.getCurrentOrganizationId().
-   * Returns `${globalPrefix}:${tenantId}:${key}` when in request context,
-   * or `${globalPrefix}:${key}` otherwise.
-   */
-  buildKey(key: string, globalPrefix: string): string {
-    const tenantId = RlsContext.getCurrentOrganizationId();
+  buildTenantKey(key: string, globalPrefix: string): string {
+    if (!RlsContext.hasStore()) {
+      throw new CacheScopeMissingError('tenant');
+    }
+    const tenantId = RlsContext.getCurrentTenantId();
     return tenantId
-      ? `${globalPrefix}:${tenantId}:${key}`
-      : `${globalPrefix}:${key}`;
+      ? `${globalPrefix}:tenant:${tenantId}:${key}`
+      : `${globalPrefix}:platform:${key}`;
   }
 
-  /**
-   * Set a value with an explicit tenantId (for background jobs without RlsContext).
-   */
-  async setScoped<T>(
-    tenantId: string,
+  buildOrganizationKey(key: string, globalPrefix: string): string {
+    if (!RlsContext.hasStore()) {
+      throw new CacheScopeMissingError('organization');
+    }
+    const organizationId = RlsContext.getCurrentOrganizationId();
+    if (!organizationId) {
+      throw new CacheScopeMissingError('organization');
+    }
+    return `${globalPrefix}:org:${organizationId}:${key}`;
+  }
+
+  async setTenantScoped<T>(
+    tenantId: string | null,
     key: string,
     value: T,
     globalPrefix: string,
     ttlMs: number = DEFAULT_TTL_MS,
   ): Promise<void> {
-    const fullKey = `${globalPrefix}:${tenantId}:${key}`;
-    await this.set(fullKey, value, ttlMs);
+    const scope = tenantId
+      ? `${globalPrefix}:tenant:${tenantId}:${key}`
+      : `${globalPrefix}:platform:${key}`;
+    await this.set(scope, value, ttlMs);
+  }
+
+  async setOrganizationScoped<T>(
+    organizationId: string,
+    key: string,
+    value: T,
+    globalPrefix: string,
+    ttlMs: number = DEFAULT_TTL_MS,
+  ): Promise<void> {
+    await this.set(
+      `${globalPrefix}:org:${organizationId}:${key}`,
+      value,
+      ttlMs,
+    );
   }
 }
