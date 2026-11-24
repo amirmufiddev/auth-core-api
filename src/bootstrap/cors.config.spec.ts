@@ -1,6 +1,6 @@
 import { NestFastifyApplication } from '@nestjs/platform-fastify';
 import { ConfigService } from '@nestjs/config';
-import { configureCors } from './cors.config';
+import { configureCors, createBetterAuthCorsMiddleware } from './cors.config';
 import { envSchema } from '../config/env.validation';
 
 describe('CORS Configuration & Validation', () => {
@@ -243,6 +243,112 @@ describe('CORS Configuration & Validation', () => {
           mockConfigService as ConfigService,
         ),
       ).toThrow('Wildcard origin (*) is not allowed in production');
+    });
+  });
+
+  describe('createBetterAuthCorsMiddleware', () => {
+    const createMockRes = () => {
+      const headers = new Map<string, string>();
+      let ended = false;
+      const res = {
+        statusCode: 200,
+        setHeader: jest.fn((name: string, val: string) => {
+          headers.set(name.toLowerCase(), val);
+        }),
+        getHeader: jest.fn((name: string) => headers.get(name.toLowerCase())),
+        end: jest.fn(() => {
+          ended = true;
+        }),
+      };
+      return { res, headers, isEnded: () => ended };
+    };
+
+    it('should respond 204 with CORS headers on OPTIONS preflight for allowed explicit & tenant subdomain origins', () => {
+      const cfg = {
+        get: jest.fn((key: string) => {
+          if (key === 'app.corsOrigins') return 'http://localhost:2000';
+          if (key === 'TENANT_BASE_DOMAIN') return 'authcore.local';
+          if (key === 'app.nodeEnv') return 'development';
+          return undefined;
+        }),
+      } as unknown as ConfigService;
+      const middleware = createBetterAuthCorsMiddleware(cfg);
+
+      for (const origin of [
+        'http://localhost:2000',
+        'https://pos-amir.authcore.local',
+      ]) {
+        const { res, headers, isEnded } = createMockRes();
+        const next = jest.fn();
+        middleware(
+          {
+            method: 'OPTIONS',
+            headers: {
+              origin,
+              'access-control-request-method': 'POST',
+              'access-control-request-headers': 'content-type',
+            },
+          },
+          res,
+          next,
+        );
+        expect(res.statusCode).toBe(204);
+        expect(isEnded()).toBe(true);
+        expect(next).not.toHaveBeenCalled();
+        expect(headers.get('access-control-allow-origin')).toBe(origin);
+        expect(headers.get('access-control-allow-credentials')).toBe('true');
+        expect(headers.get('access-control-allow-methods')).toBe('POST');
+        expect(headers.get('access-control-allow-headers')).toBe(
+          'content-type',
+        );
+      }
+    });
+
+    it('should attach CORS headers and call next() on POST for allowed origin and block disallowed OPTIONS with 403', () => {
+      const cfg = {
+        get: jest.fn((key: string) => {
+          if (key === 'app.corsOrigins') return 'http://localhost:2000';
+          if (key === 'TENANT_BASE_DOMAIN') return 'authcore.local';
+          if (key === 'app.nodeEnv') return 'production';
+          return undefined;
+        }),
+      } as unknown as ConfigService;
+      const middleware = createBetterAuthCorsMiddleware(cfg);
+
+      const postRes = createMockRes();
+      const postNext = jest.fn();
+      middleware(
+        {
+          method: 'POST',
+          headers: { origin: 'http://localhost:2000' },
+        },
+        postRes.res,
+        postNext,
+      );
+      expect(postNext).toHaveBeenCalledTimes(1);
+      expect(postRes.headers.get('access-control-allow-origin')).toBe(
+        'http://localhost:2000',
+      );
+      expect(postRes.headers.get('access-control-allow-credentials')).toBe(
+        'true',
+      );
+
+      const evilRes = createMockRes();
+      const evilNext = jest.fn();
+      middleware(
+        {
+          method: 'OPTIONS',
+          headers: { origin: 'https://evil.com' },
+        },
+        evilRes.res,
+        evilNext,
+      );
+      expect(evilRes.res.statusCode).toBe(403);
+      expect(evilRes.isEnded()).toBe(true);
+      expect(evilNext).not.toHaveBeenCalled();
+      expect(
+        evilRes.headers.get('access-control-allow-origin'),
+      ).toBeUndefined();
     });
   });
 });

@@ -27,6 +27,7 @@ import * as schema from '@/database/schema';
 import { loadBetterAuthStatement } from '@/modules/rbac/permissions/rbac-permission.loader';
 import { EmailModule, EmailService } from '@/modules/email';
 import { AppLoggerService } from '@/logger/logger.service';
+import { createBetterAuthCorsMiddleware } from '@/bootstrap/cors.config';
 import { CryptoModule } from '@/common/crypto';
 import {
   BetterAuthCacheModule,
@@ -216,6 +217,7 @@ export class AuthRuntimeCoreModule {}
           isGlobal: true,
           disableGlobalAuthGuard: false,
           disableTrustedOriginsCors: true,
+          middleware: createBetterAuthCorsMiddleware(configService),
         };
       },
     }),
