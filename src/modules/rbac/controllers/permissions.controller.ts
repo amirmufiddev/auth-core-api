@@ -8,6 +8,8 @@ import {
   Param,
   Patch,
   Post,
+  Req,
+  UseGuards,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -15,7 +17,8 @@ import {
   ApiResponse,
   ApiBearerAuth,
 } from '@nestjs/swagger';
-import { RequirePermission } from '../decorators';
+import { TenantUserGuard } from '../guards/tenant-user.guard';
+import type { TenantUserRequest } from '../guards/tenant-user.guard';
 import {
   PermissionsResponseDto,
   PermissionCodesResponseDto,
@@ -27,69 +30,88 @@ import { RbacPermissionResponseDto } from '../dto/rbac-permission-response.dto';
 
 @ApiTags('RBAC')
 @ApiBearerAuth()
+@UseGuards(TenantUserGuard)
 @Controller('rbac/permissions')
 export class PermissionsController {
   constructor(private readonly rbacPermissionService: RbacPermissionService) {}
 
   @Get()
-  @RequirePermission('ac:read')
-  @ApiOperation({ summary: 'Katalog permission (dari database)' })
+  @ApiOperation({ summary: 'Katalog permission organisasi milik tenant' })
   @ApiResponse({ status: 200, type: PermissionsResponseDto })
-  async getPermissions(): Promise<PermissionsResponseDto> {
-    return this.rbacPermissionService.getCatalog();
+  async getPermissions(
+    @Req() req: TenantUserRequest,
+  ): Promise<PermissionsResponseDto> {
+    return this.rbacPermissionService.getCatalog(req.tenantUser!.tenantId);
   }
 
   @Get('codes')
-  @RequirePermission('ac:read')
-  @ApiOperation({ summary: 'Daftar flat kode permission' })
+  @ApiOperation({ summary: 'Daftar flat kode permission tenant' })
   @ApiResponse({ status: 200, type: PermissionCodesResponseDto })
-  async getPermissionCodes(): Promise<PermissionCodesResponseDto> {
-    const codes = await this.rbacPermissionService.getPermissionCodes();
+  async getPermissionCodes(
+    @Req() req: TenantUserRequest,
+  ): Promise<PermissionCodesResponseDto> {
+    const codes = await this.rbacPermissionService.getPermissionCodes(
+      req.tenantUser!.tenantId,
+    );
     return { codes };
   }
 
   @Get(':id')
-  @RequirePermission('ac:read')
-  @ApiOperation({ summary: 'Detail satu permission' })
+  @ApiOperation({ summary: 'Detail satu permission tenant' })
   @ApiResponse({ status: 200, type: RbacPermissionResponseDto })
-  async getById(@Param('id') id: string): Promise<RbacPermissionResponseDto> {
-    const row = await this.rbacPermissionService.getById(id);
+  async getById(
+    @Req() req: TenantUserRequest,
+    @Param('id') id: string,
+  ): Promise<RbacPermissionResponseDto> {
+    const row = await this.rbacPermissionService.getById(
+      req.tenantUser!.tenantId,
+      id,
+    );
     return RbacPermissionResponseDto.fromEntity(row);
   }
 
   @Post()
-  @RequirePermission('ac:create')
   @ApiOperation({
-    summary: 'Tambah permission ke katalog',
+    summary: 'Tambah permission ke katalog tenant',
     description:
       'Permission baru di Better Auth statement aktif setelah restart aplikasi.',
   })
   @ApiResponse({ status: 201, type: RbacPermissionResponseDto })
   async create(
+    @Req() req: TenantUserRequest,
     @Body() body: CreateRbacPermissionDto,
   ): Promise<RbacPermissionResponseDto> {
-    const row = await this.rbacPermissionService.create(body);
+    const row = await this.rbacPermissionService.create(
+      req.tenantUser!.tenantId,
+      body,
+    );
     return RbacPermissionResponseDto.fromEntity(row);
   }
 
   @Patch(':id')
-  @RequirePermission('ac:update')
   @ApiOperation({ summary: 'Perbarui metadata permission (label/deskripsi)' })
   @ApiResponse({ status: 200, type: RbacPermissionResponseDto })
   async update(
+    @Req() req: TenantUserRequest,
     @Param('id') id: string,
     @Body() body: UpdateRbacPermissionDto,
   ): Promise<RbacPermissionResponseDto> {
-    const row = await this.rbacPermissionService.update(id, body);
+    const row = await this.rbacPermissionService.update(
+      req.tenantUser!.tenantId,
+      id,
+      body,
+    );
     return RbacPermissionResponseDto.fromEntity(row);
   }
 
   @Delete(':id')
-  @RequirePermission('ac:delete')
   @HttpCode(HttpStatus.NO_CONTENT)
-  @ApiOperation({ summary: 'Soft delete permission dari katalog' })
+  @ApiOperation({ summary: 'Soft delete permission dari katalog tenant' })
   @ApiResponse({ status: 204 })
-  async remove(@Param('id') id: string): Promise<void> {
-    await this.rbacPermissionService.remove(id);
+  async remove(
+    @Req() req: TenantUserRequest,
+    @Param('id') id: string,
+  ): Promise<void> {
+    await this.rbacPermissionService.remove(req.tenantUser!.tenantId, id);
   }
 }

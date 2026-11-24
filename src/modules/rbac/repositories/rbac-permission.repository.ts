@@ -3,37 +3,45 @@ import { and, eq, isNull } from 'drizzle-orm';
 import { NodePgDatabase } from 'drizzle-orm/node-postgres';
 import { DRIZZLE } from '@/database/database.constants';
 import * as schema from '@/database/schema';
-import { NewRbacPermission, RbacPermission } from '@/database/schema';
+import {
+  NewOrganizationPermission,
+  OrganizationPermission,
+} from '@/database/schema';
 import { BaseRepository } from '@/common/repository/base.repository';
 import type { IRbacPermissionRepository } from '../interfaces/rbac-permission-repository.interface';
 
 @Injectable()
 export class RbacPermissionRepository
-  extends BaseRepository<typeof schema.rbacPermission>
+  extends BaseRepository<typeof schema.organizationPermission>
   implements IRbacPermissionRepository
 {
   constructor(@Inject(DRIZZLE) db: NodePgDatabase) {
-    super(db, schema.rbacPermission);
+    super(db, schema.organizationPermission);
   }
 
-  async findAllActive(): Promise<RbacPermission[]> {
+  async findAllActiveByTenant(
+    tenantId: string,
+  ): Promise<OrganizationPermission[]> {
     return this.findAll({
+      where: eq(schema.organizationPermission.tenantId, tenantId),
       orderBy: undefined,
     });
   }
 
   async findByResourceAndAction(
+    tenantId: string,
     resource: string,
     action: string,
-  ): Promise<RbacPermission | undefined> {
+  ): Promise<OrganizationPermission | undefined> {
     const rows = await this.db
       .select()
-      .from(schema.rbacPermission)
+      .from(schema.organizationPermission)
       .where(
         and(
-          eq(schema.rbacPermission.resource, resource),
-          eq(schema.rbacPermission.action, action),
-          isNull(schema.rbacPermission.deletedAt),
+          eq(schema.organizationPermission.tenantId, tenantId),
+          eq(schema.organizationPermission.resource, resource),
+          eq(schema.organizationPermission.action, action),
+          isNull(schema.organizationPermission.deletedAt),
         ),
       )
       .limit(1);
@@ -41,17 +49,30 @@ export class RbacPermissionRepository
     return rows[0];
   }
 
-  async findActiveById(id: string): Promise<RbacPermission | undefined> {
-    const row = await super.findById(id);
-    if (!row || row.deletedAt) {
-      return undefined;
-    }
-    return row;
+  async findActiveById(
+    tenantId: string,
+    id: string,
+  ): Promise<OrganizationPermission | undefined> {
+    const rows = await this.db
+      .select()
+      .from(schema.organizationPermission)
+      .where(
+        and(
+          eq(schema.organizationPermission.id, id),
+          eq(schema.organizationPermission.tenantId, tenantId),
+          isNull(schema.organizationPermission.deletedAt),
+        ),
+      )
+      .limit(1);
+
+    return rows[0];
   }
 
-  async createPermission(data: NewRbacPermission): Promise<RbacPermission> {
+  async createPermission(
+    data: NewOrganizationPermission,
+  ): Promise<OrganizationPermission> {
     const result = await this.db
-      .insert(schema.rbacPermission)
+      .insert(schema.organizationPermission)
       .values({
         ...data,
         updatedAt: new Date(),
@@ -62,31 +83,49 @@ export class RbacPermissionRepository
   }
 
   async updatePermission(
+    tenantId: string,
     id: string,
     data: Partial<
       Pick<
-        RbacPermission,
+        OrganizationPermission,
         | 'actionDisplayName'
         | 'actionDescription'
         | 'resourceDisplayName'
         | 'resourceDescription'
       >
     >,
-  ): Promise<RbacPermission | undefined> {
+  ): Promise<OrganizationPermission | undefined> {
     const result = await this.db
-      .update(schema.rbacPermission)
+      .update(schema.organizationPermission)
       .set({
         ...data,
         updatedAt: new Date(),
       })
       .where(
         and(
-          eq(schema.rbacPermission.id, id),
-          isNull(schema.rbacPermission.deletedAt),
+          eq(schema.organizationPermission.id, id),
+          eq(schema.organizationPermission.tenantId, tenantId),
+          isNull(schema.organizationPermission.deletedAt),
         ),
       )
       .returning();
 
     return result[0];
+  }
+
+  async softDeleteForTenant(tenantId: string, id: string): Promise<boolean> {
+    const result = await this.db
+      .update(schema.organizationPermission)
+      .set({ deletedAt: new Date(), updatedAt: new Date() })
+      .where(
+        and(
+          eq(schema.organizationPermission.id, id),
+          eq(schema.organizationPermission.tenantId, tenantId),
+          isNull(schema.organizationPermission.deletedAt),
+        ),
+      )
+      .returning({ id: schema.organizationPermission.id });
+
+    return result.length > 0;
   }
 }

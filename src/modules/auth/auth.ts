@@ -1217,11 +1217,14 @@ const buildPluginsConfig = (
           },
           afterCreateOrganization: async ({ organization }) => {
             if (deps.database) return;
-            const templates = await loadOrganizationRoleTemplates(authDb);
             const orgTenantId =
               (organization as { tenantId?: string | null }).tenantId ??
               getEffectiveTenantContext(deps.tenantContext).tenantId ??
               null;
+            const templates = await loadOrganizationRoleTemplates(
+              authDb,
+              orgTenantId,
+            );
 
             const roleEntries =
               templates.length > 0

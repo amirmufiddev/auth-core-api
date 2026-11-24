@@ -9,13 +9,15 @@ jest.mock('@thallesp/nestjs-better-auth', () => ({
 import { Test, TestingModule } from '@nestjs/testing';
 import { Reflector } from '@nestjs/core';
 import { DECORATORS } from '@nestjs/swagger';
+import { DRIZZLE } from '@/database/database.constants';
 import { PermissionsController } from './permissions.controller';
 import { PermissionScopeService } from '../services/permission-scope.service';
 import { PermissionScopeCacheService } from '../services/permission-scope-cache.service';
 import { RbacPermissionService } from '../services/rbac-permission.service';
 import { getAllPermissionCodes } from '../constants/permissions.constant';
 import { PermissionCodesResponseDto } from '../dto/permission.dto';
-import { SCOPE_META_KEY } from '../decorators/require-permission.decorator';
+import { GUARDS_METADATA } from '@nestjs/common/constants';
+import { TenantUserGuard } from '../guards/tenant-user.guard';
 
 function getApiResponseType(
   handler: (...args: unknown[]) => unknown,
@@ -69,6 +71,10 @@ describe('PermissionsController', () => {
           useValue: rbacPermissionService,
         },
         {
+          provide: DRIZZLE,
+          useValue: {},
+        },
+        {
           provide: PermissionScopeService,
           useValue: {
             resolveScope: jest.fn(),
@@ -95,24 +101,9 @@ describe('PermissionsController', () => {
   });
 
   describe('Security & Decorator rules', () => {
-    it('should be protected with @RequirePermission("ac:read")', () => {
-      const getPermissionsMetadata = Reflect.getMetadata(
-        SCOPE_META_KEY,
-        controller.getPermissions,
-      );
-      const getPermissionCodesMetadata = Reflect.getMetadata(
-        SCOPE_META_KEY,
-        controller.getPermissionCodes,
-      );
-
-      expect(getPermissionsMetadata).toEqual({
-        resource: 'ac',
-        action: 'read',
-      });
-      expect(getPermissionCodesMetadata).toEqual({
-        resource: 'ac',
-        action: 'read',
-      });
+    it('should be protected for tenant users', () => {
+      const guards = Reflect.getMetadata(GUARDS_METADATA, PermissionsController);
+      expect(guards).toContain(TenantUserGuard);
     });
 
     it('should not have @AllowAnonymous decorator on endpoints', () => {
@@ -132,16 +123,20 @@ describe('PermissionsController', () => {
 
   describe('getPermissions', () => {
     it('should return catalog from service', async () => {
-      const result = await controller.getPermissions();
+      const result = await controller.getPermissions({
+        tenantUser: { userId: 'usr_1', tenantId: 'ten_1' },
+      });
 
-      expect(rbacPermissionService.getCatalog).toHaveBeenCalled();
+      expect(rbacPermissionService.getCatalog).toHaveBeenCalledWith('ten_1');
       expect(result.permissions[0].code).toBe('member:read');
     });
   });
 
   describe('getPermissionCodes', () => {
     it('should return flat array of permission codes', async () => {
-      const result = await controller.getPermissionCodes();
+      const result = await controller.getPermissionCodes({
+        tenantUser: { userId: 'usr_1', tenantId: 'ten_1' },
+      });
 
       expect(result.codes).toContain('member:read');
       expect(result.codes).toContain('broadcast:trigger');

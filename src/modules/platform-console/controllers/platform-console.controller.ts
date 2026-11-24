@@ -42,6 +42,7 @@ import { PlatformOAuthSsoService } from '../services/platform-oauth-sso.service'
 import { PlatformOrganizationsService } from '../services/platform-organizations.service';
 import { PlatformRolesService } from '../services/platform-roles.service';
 import { PlatformSessionsService } from '../services/platform-sessions.service';
+import { PLATFORM_PERMISSION_CATALOG } from '../constants/platform-permissions.catalog';
 import { PlatformUsersService } from '../services/platform-users.service';
 
 interface AuthSessionContext {
@@ -84,6 +85,13 @@ export class PlatformConsoleController {
   })
   async getMe(@Session() session: AuthSessionContext | null) {
     return this.usersService.getMe(this.extractActor(session).id);
+  }
+
+  @Get('permissions')
+  @RequirePlatformPermission('role:read')
+  @ApiOperation({ summary: 'Katalog permission platform (statis)' })
+  getPlatformPermissions() {
+    return { modules: PLATFORM_PERMISSION_CATALOG };
   }
 
   @Get('metrics')

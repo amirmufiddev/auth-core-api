@@ -20,6 +20,7 @@ import {
   PLATFORM_USER_REPOSITORY_TOKEN,
 } from '../interfaces';
 import { PlatformAuditService } from './platform-audit.service';
+import { assertPlatformPermissionMatrix } from '../constants/platform-permissions.catalog';
 
 @Injectable()
 export class PlatformRolesService {
@@ -92,6 +93,8 @@ export class PlatformRolesService {
     if (!existing) {
       throw new NotFoundException('Role tidak ditemukan.');
     }
+
+    assertPlatformPermissionMatrix(input.permissions);
 
     const updated = await this.roleRepo.update(roleId, {
       name: input.name,

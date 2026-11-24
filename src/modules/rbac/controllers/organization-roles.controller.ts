@@ -9,6 +9,7 @@ import {
   Patch,
   Post,
   Req,
+  UseGuards,
 } from '@nestjs/common';
 import type { FastifyRequest } from 'fastify';
 import {
@@ -19,7 +20,7 @@ import {
 } from '@nestjs/swagger';
 import { BusinessError } from '@/common/errors/business-error';
 import { RlsContext } from '@/shared/database/rls-context';
-import { RequirePermission } from '../decorators';
+import { OrganizationOwnerGuard } from '../guards/organization-owner.guard';
 import { OrganizationRoleService } from '../services/organization-role.service';
 import {
   OrganizationRoleResponseDto,
@@ -28,6 +29,7 @@ import {
 
 @ApiTags('RBAC')
 @ApiBearerAuth()
+@UseGuards(OrganizationOwnerGuard)
 @Controller('rbac/roles')
 export class OrganizationRolesController {
   constructor(
@@ -46,7 +48,6 @@ export class OrganizationRolesController {
   }
 
   @Get()
-  @RequirePermission('ac:read')
   @ApiOperation({ summary: 'Daftar role organisasi aktif beserta permission' })
   @ApiResponse({ status: 200, type: [OrganizationRoleResponseDto] })
   async list(): Promise<OrganizationRoleResponseDto[]> {
@@ -56,7 +57,6 @@ export class OrganizationRolesController {
   }
 
   @Get(':roleId')
-  @RequirePermission('ac:read')
   @ApiOperation({ summary: 'Detail role organisasi' })
   @ApiResponse({ status: 200, type: OrganizationRoleResponseDto })
   async getById(
@@ -71,7 +71,6 @@ export class OrganizationRolesController {
   }
 
   @Post()
-  @RequirePermission('ac:create')
   @ApiOperation({ summary: 'Buat role kustom dengan daftar permission' })
   @ApiResponse({ status: 201, type: OrganizationRoleResponseDto })
   async create(
@@ -95,7 +94,6 @@ export class OrganizationRolesController {
   }
 
   @Patch(':roleId')
-  @RequirePermission('ac:update')
   @ApiOperation({ summary: 'Perbarui permission / nama role' })
   @ApiResponse({ status: 200, type: OrganizationRoleResponseDto })
   async update(
@@ -121,7 +119,6 @@ export class OrganizationRolesController {
   }
 
   @Delete(':roleId')
-  @RequirePermission('ac:delete')
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({ summary: 'Hapus role kustom (bukan owner)' })
   @ApiResponse({ status: 204 })

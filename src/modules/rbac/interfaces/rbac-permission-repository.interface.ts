@@ -1,28 +1,38 @@
-import type { NewRbacPermission, RbacPermission } from '@/database/schema';
+import type {
+  NewOrganizationPermission,
+  OrganizationPermission,
+} from '@/database/schema';
 
 export const RBAC_PERMISSION_REPOSITORY_TOKEN = Symbol(
   'RBAC_PERMISSION_REPOSITORY_TOKEN',
 );
 
 export interface IRbacPermissionRepository {
-  findAllActive(): Promise<RbacPermission[]>;
+  findAllActiveByTenant(tenantId: string): Promise<OrganizationPermission[]>;
   findByResourceAndAction(
+    tenantId: string,
     resource: string,
     action: string,
-  ): Promise<RbacPermission | undefined>;
-  findActiveById(id: string): Promise<RbacPermission | undefined>;
-  createPermission(data: NewRbacPermission): Promise<RbacPermission>;
+  ): Promise<OrganizationPermission | undefined>;
+  findActiveById(
+    tenantId: string,
+    id: string,
+  ): Promise<OrganizationPermission | undefined>;
+  createPermission(
+    data: NewOrganizationPermission,
+  ): Promise<OrganizationPermission>;
   updatePermission(
+    tenantId: string,
     id: string,
     data: Partial<
       Pick<
-        RbacPermission,
+        OrganizationPermission,
         | 'actionDisplayName'
         | 'actionDescription'
         | 'resourceDisplayName'
         | 'resourceDescription'
       >
     >,
-  ): Promise<RbacPermission | undefined>;
-  softDelete(id: string): Promise<boolean>;
+  ): Promise<OrganizationPermission | undefined>;
+  softDeleteForTenant(tenantId: string, id: string): Promise<boolean>;
 }

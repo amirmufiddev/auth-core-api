@@ -24,6 +24,6 @@ export * from './better-auth-agent-auth';
 export * from './auth-feature-config';
 export * from './auth-core-role';
 export * from './audit-trail';
-export * from './rbac-permission';
-export * from './rbac-role-template';
+export * from './organization-permission';
+export * from './organization-role-template';
 export * from './pending-member-link';

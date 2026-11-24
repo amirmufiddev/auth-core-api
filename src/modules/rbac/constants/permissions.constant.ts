@@ -1,5 +1,5 @@
 /**
- * Bootstrap fallback saat tabel `rbac_permission` belum terisi (mis. unit test auth).
+ * Bootstrap fallback saat tabel `organization_permission` belum terisi (mis. unit test auth).
  * Produksi memuat statement dari database via `loadBetterAuthStatement`.
  */
 export const BOOTSTRAP_BETTER_AUTH_STATEMENT: Record<
@@ -48,7 +48,7 @@ export function getAllPermissionCodes(): string[] {
   return codes;
 }
 
-/** @deprecated Dipakai seed legacy; org baru memakai `rbac_role_template`. */
+/** @deprecated Dipakai seed legacy; org baru memakai `organization_role_template`. */
 export function getDefaultRolePermissions(): Record<
   string,
   Record<string, string[]>

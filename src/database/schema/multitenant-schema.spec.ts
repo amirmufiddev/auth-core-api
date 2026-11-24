@@ -64,6 +64,8 @@ describe('Multi-Tenant Drizzle Schema', () => {
       schema.session,
       schema.organization,
       schema.organizationRole,
+      schema.organizationPermission,
+      schema.organizationRoleTemplate,
       schema.member,
       schema.invitation,
       schema.account,

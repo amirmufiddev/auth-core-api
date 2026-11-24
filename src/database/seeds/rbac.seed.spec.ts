@@ -32,7 +32,7 @@ describe('RBAC Seeder', () => {
     }
   });
 
-  it('should execute inserts into rbac_permission and rbac_role_template in rbacSeeder.run', async () => {
+  it('should execute inserts into auth_core_role in rbacSeeder.run', async () => {
     const executedQueries: string[] = [];
     const queryMock = mock((sql: string) => {
       executedQueries.push(sql);
@@ -45,12 +45,12 @@ describe('RBAC Seeder', () => {
     await rbacSeeder.run(fakeContext);
 
     expect(
-      executedQueries.some((q) => q.includes('INSERT INTO "rbac_permission"')),
+      executedQueries.some((q) => q.includes('INSERT INTO "auth_core_role"')),
     ).toBe(true);
     expect(
       executedQueries.some((q) =>
-        q.includes('INSERT INTO "rbac_role_template"'),
+        q.includes('INSERT INTO "organization_permission"'),
       ),
-    ).toBe(true);
+    ).toBe(false);
   });
 });

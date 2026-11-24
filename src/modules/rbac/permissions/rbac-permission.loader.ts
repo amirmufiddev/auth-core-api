@@ -1,4 +1,4 @@
-import { isNull } from 'drizzle-orm';
+import { eq, isNull } from 'drizzle-orm';
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
 import * as schema from '@/database/schema';
 import { buildBetterAuthStatementFromRows } from '../utils/rbac-permission.mapper';
@@ -29,11 +29,11 @@ export async function loadBetterAuthStatement(
   try {
     const rows = await db
       .select({
-        resource: schema.rbacPermission.resource,
-        action: schema.rbacPermission.action,
+        resource: schema.organizationPermission.resource,
+        action: schema.organizationPermission.action,
       })
-      .from(schema.rbacPermission)
-      .where(isNull(schema.rbacPermission.deletedAt));
+      .from(schema.organizationPermission)
+      .where(isNull(schema.organizationPermission.deletedAt));
 
     if (rows.length === 0) {
       return BOOTSTRAP_BETTER_AUTH_STATEMENT;
@@ -43,7 +43,7 @@ export async function loadBetterAuthStatement(
   } catch (error) {
     if (isMissingRbacTables(error)) {
       console.warn(
-        '[rbac] Tabel rbac_permission belum ada — memakai bootstrap statement. Jalankan: bun run db:migrate',
+        '[rbac] Tabel organization_permission belum ada — memakai bootstrap statement. Jalankan: bun run db:migrate',
       );
       return BOOTSTRAP_BETTER_AUTH_STATEMENT;
     }
@@ -53,6 +53,7 @@ export async function loadBetterAuthStatement(
 
 export async function loadOrganizationRoleTemplates(
   db: NodePgDatabase<Record<string, unknown>>,
+  tenantId: string | null,
 ): Promise<
   Array<{
     roleName: string;
@@ -60,14 +61,19 @@ export async function loadOrganizationRoleTemplates(
     permissionScopes: string;
   }>
 > {
+  if (!tenantId) {
+    return [];
+  }
+
   try {
     return await db
       .select({
-        roleName: schema.rbacRoleTemplate.roleName,
-        permission: schema.rbacRoleTemplate.permission,
-        permissionScopes: schema.rbacRoleTemplate.permissionScopes,
+        roleName: schema.organizationRoleTemplate.roleName,
+        permission: schema.organizationRoleTemplate.permission,
+        permissionScopes: schema.organizationRoleTemplate.permissionScopes,
       })
-      .from(schema.rbacRoleTemplate);
+      .from(schema.organizationRoleTemplate)
+      .where(eq(schema.organizationRoleTemplate.tenantId, tenantId));
   } catch (error) {
     if (isMissingRbacTables(error)) {
       return [];

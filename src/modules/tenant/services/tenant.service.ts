@@ -26,6 +26,10 @@ import {
   mapTenantCreatePgError,
   normalizeAndValidateTenantSlug,
 } from '../utils/tenant-validation.util';
+import { seedOrganizationCatalogForTenant } from '@/database/seeds/rbac.seed';
+import { DRIZZLE } from '@/database/database.constants';
+import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
+import * as schema from '@/database/schema';
 
 const DEFAULT_TIER_ID = 'tier_free';
 
@@ -40,6 +44,9 @@ export class TenantService {
     @Inject(BETTER_AUTH_REDIS_CLIENT)
     private readonly redisClient?: TenantRedisClient,
     @Optional() private readonly eventEmitter?: EventEmitter2,
+    @Optional()
+    @Inject(DRIZZLE)
+    private readonly db?: NodePgDatabase<typeof schema>,
   ) {}
 
   private async ensureTierExists(tierId: string): Promise<void> {
@@ -155,6 +162,9 @@ export class TenantService {
     }
 
     await writeTenantSlugCache(this.redisClient, created, this.logger);
+    if (this.db) {
+      await seedOrganizationCatalogForTenant(this.db, created.id);
+    }
     return created;
   }
 

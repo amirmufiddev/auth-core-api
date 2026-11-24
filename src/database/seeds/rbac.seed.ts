@@ -1,3 +1,6 @@
+import { and, eq, isNull } from 'drizzle-orm';
+import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
+import * as schema from '@/database/schema';
 import {
   BOOTSTRAP_BETTER_AUTH_STATEMENT,
   getDefaultRolePermissions,
@@ -59,57 +62,55 @@ export function buildRbacRoleTemplateRows(): Array<{
   }));
 }
 
+export async function seedOrganizationCatalogForTenant(
+  db: NodePgDatabase<typeof schema>,
+  tenantId: string,
+): Promise<void> {
+  for (const perm of buildRbacPermissionRows()) {
+    const existing = await db
+      .select({ id: schema.organizationPermission.id })
+      .from(schema.organizationPermission)
+      .where(
+        and(
+          eq(schema.organizationPermission.tenantId, tenantId),
+          eq(schema.organizationPermission.resource, perm.resource),
+          eq(schema.organizationPermission.action, perm.action),
+          isNull(schema.organizationPermission.deletedAt),
+        ),
+      )
+      .limit(1);
+
+    if (existing.length > 0) continue;
+
+    await db.insert(schema.organizationPermission).values({
+      tenantId,
+      resource: perm.resource,
+      action: perm.action,
+      actionDisplayName: perm.actionDisplayName,
+      actionDescription: perm.actionDescription,
+      resourceDisplayName: perm.resourceDisplayName,
+      resourceDescription: perm.resourceDescription,
+    });
+  }
+
+  for (const tmpl of buildRbacRoleTemplateRows()) {
+    await db
+      .insert(schema.organizationRoleTemplate)
+      .values({
+        tenantId,
+        roleName: tmpl.roleName,
+        permission: tmpl.permission,
+        permissionScopes: tmpl.permissionScopes,
+      })
+      .onConflictDoNothing();
+  }
+}
+
 export const rbacSeeder: Seeder = {
   name: 'rbac',
   async run({ pool }: SeederContext): Promise<void> {
-    const permissions = buildRbacPermissionRows();
-    const roleTemplates = buildRbacRoleTemplateRows();
-
-    // Insert permissions (active unique index uq_rbac_permission_resource_action_active where deleted_at is null)
-    for (const perm of permissions) {
-      await pool.query(
-        `
-        INSERT INTO "rbac_permission" (
-          "resource",
-          "action",
-          "action_display_name",
-          "action_description",
-          "resource_display_name",
-          "resource_description"
-        )
-        SELECT $1, $2, $3, $4, $5, $6
-        WHERE NOT EXISTS (
-          SELECT 1 FROM "rbac_permission"
-          WHERE "resource" = $1 AND "action" = $2 AND "deleted_at" IS NULL
-        );
-        `,
-        [
-          perm.resource,
-          perm.action,
-          perm.actionDisplayName,
-          perm.actionDescription,
-          perm.resourceDisplayName,
-          perm.resourceDescription,
-        ],
-      );
-    }
-
-    // Insert or update role templates
-    for (const tmpl of roleTemplates) {
-      await pool.query(
-        `
-        INSERT INTO "rbac_role_template" ("role_name", "permission", "permission_scopes", "created_at", "updated_at")
-        VALUES ($1, $2, $3, now(), now())
-        ON CONFLICT ("role_name") DO UPDATE
-          SET "permission" = EXCLUDED.permission,
-              "permission_scopes" = EXCLUDED.permission_scopes,
-              "updated_at" = now();
-        `,
-        [tmpl.roleName, tmpl.permission, tmpl.permissionScopes],
-      );
-    }
-
-    // Insert default Auth Core Console RBAC roles
+    // Katalog organisasi diisi per tenant lewat seedOrganizationCatalogForTenant.
+    // Seeder global hanya menyiapkan role platform.
     const defaultConsoleRoles = [
       {
         id: 'role_super_admin',
@@ -154,16 +155,13 @@ export const rbacSeeder: Seeder = {
         name: 'Security Admin',
         slug: 'security_admin',
         description:
-          'Mengelola kebijakan 2FA, sesi aktif, API Key, SSO, dan audit log.',
+          'Mengelola sesi staf, pembekuan akun, plugin login platform, dan audit. API key serta aplikasi pelanggan diatur pemilik tenant.',
         isSystem: true,
         permissions: {
           user: ['read', 'update', 'ban'],
           session: ['read', 'revoke'],
           role: ['read'],
           organization: ['read'],
-          apiKey: ['read', 'create', 'update', 'revoke'],
-          oauthClient: ['read', 'update'],
-          sso: ['read', 'configure'],
           authConfig: ['read', 'configure'],
           auditLog: ['read', 'export'],
         },
@@ -173,14 +171,13 @@ export const rbacSeeder: Seeder = {
         name: 'Org Manager',
         slug: 'org_manager',
         description:
-          'Mengelola tenant organisasi, tim, undangan member, dan kuota user.',
+          'Membuat tenant, mengubah status dan tier, serta membaca staf dan audit platform.',
         isSystem: false,
         permissions: {
           user: ['read', 'create', 'update'],
           session: ['read'],
           role: ['read'],
           organization: ['read', 'create', 'update'],
-          apiKey: ['read'],
           auditLog: ['read'],
         },
       },
@@ -189,7 +186,7 @@ export const rbacSeeder: Seeder = {
         name: 'Support Agent',
         slug: 'support_agent',
         description:
-          'Membantu troubleshooting user termasuk impersonation & pencabutan sesi.',
+          'Mencari akun di direktori, masuk sebagai pengguna, dan mencabut sesi. Melihat tenant dalam mode dukungan.',
         isSystem: false,
         permissions: {
           user: ['read', 'update', 'impersonate'],
@@ -203,16 +200,13 @@ export const rbacSeeder: Seeder = {
         name: 'Compliance Auditor',
         slug: 'auditor',
         description:
-          'Akses read-only ke user, role, SSO, konfigurasi, dan ekspor audit log.',
+          'Membaca direktori akun, role, sesi, tenant, dan plugin, lalu mengekspor audit platform.',
         isSystem: false,
         permissions: {
           user: ['read'],
           session: ['read'],
           role: ['read'],
           organization: ['read'],
-          apiKey: ['read'],
-          oauthClient: ['read'],
-          sso: ['read'],
           authConfig: ['read'],
           auditLog: ['read', 'export'],
         },
@@ -222,7 +216,7 @@ export const rbacSeeder: Seeder = {
         name: 'Standard User',
         slug: 'user',
         description:
-          'Role default pengguna aplikasi tanpa hak akses konsol admin.',
+          'Akun pelanggan. Mengelola tenant yang ia miliki dari shell tenant.',
         isSystem: true,
         permissions: {},
       },
@@ -233,7 +227,9 @@ export const rbacSeeder: Seeder = {
         `
         INSERT INTO "auth_core_role" ("id", "name", "slug", "description", "is_system", "permissions", "created_at", "updated_at")
         VALUES ($1, $2, $3, $4, $5, $6::jsonb, now(), now())
-        ON CONFLICT ("slug") DO NOTHING;
+        ON CONFLICT ("slug") DO UPDATE
+          SET "description" = EXCLUDED.description,
+              "updated_at" = now();
         `,
         [
           roleRow.id,

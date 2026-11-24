@@ -1,6 +1,6 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { BusinessError } from '@/common/errors/business-error';
-import type { RbacPermission } from '@/database/schema';
+import type { OrganizationPermission } from '@/database/schema';
 import {
   RBAC_PERMISSION_REPOSITORY_TOKEN,
   type IRbacPermissionRepository,
@@ -22,29 +22,33 @@ export class RbacPermissionService {
     private readonly permissionRepo: IRbacPermissionRepository,
   ) {}
 
-  async getCatalog() {
-    const rows = await this.permissionRepo.findAllActive();
+  async getCatalog(tenantId: string) {
+    const rows = await this.permissionRepo.findAllActiveByTenant(tenantId);
     return buildPermissionCatalogView(rows);
   }
 
-  async getPermissionCodes(): Promise<string[]> {
-    const rows = await this.permissionRepo.findAllActive();
+  async getPermissionCodes(tenantId: string): Promise<string[]> {
+    const rows = await this.permissionRepo.findAllActiveByTenant(tenantId);
     return buildAllPermissionCodes(rows);
   }
 
-  async getById(id: string): Promise<RbacPermission> {
-    const row = await this.permissionRepo.findActiveById(id);
+  async getById(tenantId: string, id: string): Promise<OrganizationPermission> {
+    const row = await this.permissionRepo.findActiveById(tenantId, id);
     if (!row) {
       throw BusinessError.notFound('Permission', id);
     }
     return row;
   }
 
-  async create(dto: CreateRbacPermissionDto): Promise<RbacPermission> {
+  async create(
+    tenantId: string,
+    dto: CreateRbacPermissionDto,
+  ): Promise<OrganizationPermission> {
     this.assertSlug('resource', dto.resource, RESOURCE_PATTERN);
     this.assertSlug('action', dto.action, ACTION_PATTERN);
 
     const existing = await this.permissionRepo.findByResourceAndAction(
+      tenantId,
       dto.resource,
       dto.action,
     );
@@ -56,6 +60,7 @@ export class RbacPermissionService {
     }
 
     return this.permissionRepo.createPermission({
+      tenantId,
       resource: dto.resource,
       action: dto.action,
       actionDisplayName: dto.actionDisplayName,
@@ -66,12 +71,13 @@ export class RbacPermissionService {
   }
 
   async update(
+    tenantId: string,
     id: string,
     dto: UpdateRbacPermissionDto,
-  ): Promise<RbacPermission> {
-    await this.getById(id);
+  ): Promise<OrganizationPermission> {
+    await this.getById(tenantId, id);
 
-    const updated = await this.permissionRepo.updatePermission(id, {
+    const updated = await this.permissionRepo.updatePermission(tenantId, id, {
       actionDisplayName: dto.actionDisplayName,
       actionDescription: dto.actionDescription,
       resourceDisplayName: dto.resourceDisplayName,
@@ -85,9 +91,12 @@ export class RbacPermissionService {
     return updated;
   }
 
-  async remove(id: string): Promise<void> {
-    await this.getById(id);
-    const deleted = await this.permissionRepo.softDelete(id);
+  async remove(tenantId: string, id: string): Promise<void> {
+    await this.getById(tenantId, id);
+    const deleted = await this.permissionRepo.softDeleteForTenant(
+      tenantId,
+      id,
+    );
     if (!deleted) {
       throw BusinessError.notFound('Permission', id);
     }
