@@ -1,5 +1,13 @@
 export { AuthModule } from './auth.module';
 export { AuthRuntimeHolder } from './auth-runtime.holder';
+export {
+  AuthRuntimeRegistry,
+  CATALOG_VERSION_REDIS_KEY,
+  DEFAULT_AUTH_RUNTIME_LRU_MAX,
+  type AuthRuntimeRedisClient,
+  type AuthRuntimeRedisSubscriber,
+  type AuthRuntimeRegistryInitOptions,
+} from './auth-runtime.registry';
 export { AuthFeatureConfigService } from './services/auth-feature-config.service';
 export {
   BETTER_AUTH_FEATURE_CATALOG,

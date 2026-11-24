@@ -102,6 +102,7 @@ export interface AuthDependencies {
   secondaryStorage?: BetterAuthOptions['secondaryStorage'];
   database?: BetterAuthOptions['database'];
   tenantContext?: ResolvedTenantContext | null;
+  tenantBaseDomain?: string;
   tenantStatus?: 'active' | 'suspended';
   eventEmitter?: EventEmitter2;
   betterAuthStatement?: Record<string, readonly string[]>;
@@ -591,6 +592,31 @@ const buildPluginsConfig = (
     } catch {
       parsedOrigin = 'http://localhost:2000';
     }
+
+    if (deps.tenantContext?.tenantId) {
+      const tenantDomain = (
+        deps.tenantBaseDomain ||
+        deps.configService.get<string>('TENANT_BASE_DOMAIN') ||
+        process.env.TENANT_BASE_DOMAIN ||
+        'authcore.local'
+      )
+        .trim()
+        .toLowerCase();
+      parsedRpId = tenantDomain;
+      if (
+        deps.tenantContext.source === 'subdomain' &&
+        deps.tenantContext.slug
+      ) {
+        try {
+          const u = new URL(parsedOrigin);
+          const portSuffix = u.port ? `:${u.port}` : '';
+          parsedOrigin = `${u.protocol}//${deps.tenantContext.slug}.${tenantDomain}${portSuffix}`;
+        } catch {
+          parsedOrigin = `https://${deps.tenantContext.slug}.${tenantDomain}`;
+        }
+      }
+    }
+
     pluginsList.push(
       passkey({
         rpID: String(getSetting(fc, 'passkey', 'rpID', parsedRpId)),
@@ -1120,6 +1146,29 @@ function assignWhatsappNumber(
   }
 }
 
+export function resolveTenantBaseUrl(
+  baseUrl: string,
+  tenantContext?: ResolvedTenantContext | null,
+  tenantBaseDomain?: string,
+): string {
+  if (
+    !tenantContext?.tenantId ||
+    !tenantContext.slug ||
+    tenantContext.source !== 'subdomain'
+  ) {
+    return baseUrl;
+  }
+
+  const domain = (tenantBaseDomain || 'authcore.local').trim().toLowerCase();
+  try {
+    const parsed = new URL(baseUrl);
+    const portSuffix = parsed.port ? `:${parsed.port}` : '';
+    return `${parsed.protocol}//${tenantContext.slug}.${domain}${portSuffix}`;
+  } catch {
+    return `https://${tenantContext.slug}.${domain}`;
+  }
+}
+
 export const createAuthInstance = (deps: AuthDependencies) => {
   const { corsOrigins, appName } = deps.configService.get<AppConfig>('app', {
     infer: true,
@@ -1128,6 +1177,17 @@ export const createAuthInstance = (deps: AuthDependencies) => {
     deps.configService.get<AuthConfig>('auth', {
       infer: true,
     });
+
+  const tenantBaseDomain =
+    deps.tenantBaseDomain ||
+    deps.configService.get<string>('TENANT_BASE_DOMAIN') ||
+    process.env.TENANT_BASE_DOMAIN ||
+    'authcore.local';
+  const resolvedBaseUrl = resolveTenantBaseUrl(
+    url,
+    deps.tenantContext,
+    tenantBaseDomain,
+  );
 
   const authDb = drizzle({ client: getSharedPool(), schema: schema as any });
   const fc = deps.featureConfig;
@@ -1179,7 +1239,7 @@ export const createAuthInstance = (deps: AuthDependencies) => {
   const options: BetterAuthOptions = {
     appName,
     basePath: path,
-    baseURL: url,
+    baseURL: resolvedBaseUrl,
     secret,
     database:
       deps.database ?? drizzleAdapter(authDb, { provider: 'pg', schema }),

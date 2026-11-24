@@ -8,7 +8,7 @@ import {
   type AuditLogInput,
   createAuthInstance,
 } from './auth';
-import { AuthRuntimeHolder } from './auth-runtime.holder';
+import { AuthRuntimeRegistry } from './auth-runtime.registry';
 import { AuthFeatureConfigService } from './services/auth-feature-config.service';
 import { DatabaseModule } from '@/database/database.module';
 import { DRIZZLE } from '@/database/database.constants';
@@ -20,7 +20,10 @@ import {
   BetterAuthCacheModule,
   BETTER_AUTH_SECONDARY_STORAGE,
 } from '@/common/auth/better-auth-cache.module';
-import { TenantContextStorage } from '@/modules/tenant';
+import {
+  type ResolvedTenantContext,
+  TenantContextStorage,
+} from '@/modules/tenant';
 
 const dynamicEsmImport = new Function(
   'specifier',
@@ -29,9 +32,9 @@ const dynamicEsmImport = new Function(
 
 @Global()
 @Module({
-  imports: [DatabaseModule],
-  providers: [AuthFeatureConfigService, AuthRuntimeHolder],
-  exports: [AuthFeatureConfigService, AuthRuntimeHolder],
+  imports: [DatabaseModule, BetterAuthCacheModule],
+  providers: [AuthFeatureConfigService, AuthRuntimeRegistry],
+  exports: [AuthFeatureConfigService, AuthRuntimeRegistry],
 })
 export class AuthRuntimeCoreModule {}
 
@@ -51,7 +54,7 @@ export class AuthRuntimeCoreModule {}
         BETTER_AUTH_SECONDARY_STORAGE,
         DRIZZLE,
         AuthFeatureConfigService,
-        AuthRuntimeHolder,
+        AuthRuntimeRegistry,
       ],
       useFactory: async (
         configService: ConfigService,
@@ -61,10 +64,10 @@ export class AuthRuntimeCoreModule {}
         secondaryStorage: unknown,
         db: NodePgDatabase<typeof schema>,
         featureConfigService: AuthFeatureConfigService,
-        holder: AuthRuntimeHolder,
+        registry: AuthRuntimeRegistry,
       ) => {
         const betterAuthStatement = await loadBetterAuthStatement(db);
-        const initialFeatureConfig =
+        let currentFeatureConfig =
           await featureConfigService.loadFromDatabase();
 
         let agentAuthPluginFactory: AgentAuthPluginFactory | undefined;
@@ -102,7 +105,15 @@ export class AuthRuntimeCoreModule {}
           });
         };
 
-        const buildAuth = (fc: typeof initialFeatureConfig) =>
+        const tenantBaseDomain =
+          configService.get<string>('TENANT_BASE_DOMAIN') ??
+          process.env.TENANT_BASE_DOMAIN ??
+          'authcore.local';
+
+        const buildAuth = (
+          fc: typeof currentFeatureConfig,
+          tenantContext?: ResolvedTenantContext | null,
+        ) =>
           createAuthInstance({
             configService,
             emailService,
@@ -111,17 +122,24 @@ export class AuthRuntimeCoreModule {}
             secondaryStorage: secondaryStorage as Parameters<
               typeof createAuthInstance
             >[0]['secondaryStorage'],
+            tenantContext,
+            tenantBaseDomain,
             betterAuthStatement,
             featureConfig: fc,
             agentAuthPluginFactory,
             auditLogger,
           });
 
-        const initialAuth = buildAuth(initialFeatureConfig);
-        holder.initialize(initialAuth, buildAuth);
+        const initialAuth = buildAuth(currentFeatureConfig);
+        registry.initialize({
+          platformInstance: initialAuth,
+          buildPlatformAuth: () => buildAuth(currentFeatureConfig),
+          buildTenantAuth: (ctx) => buildAuth(currentFeatureConfig, ctx),
+        });
 
-        featureConfigService.onConfigUpdated((nextConfig) => {
-          holder.reload(nextConfig);
+        featureConfigService.onConfigUpdated(async (nextConfig) => {
+          currentFeatureConfig = nextConfig;
+          await registry.invalidatePlatform();
           loggerService.log(
             'Better Auth runtime instance reloaded after feature config update.',
             'AuthModule',
@@ -129,7 +147,7 @@ export class AuthRuntimeCoreModule {}
         });
 
         return {
-          auth: holder.createProxy(),
+          auth: registry.createContextAwareProxy(),
           isGlobal: true,
           disableGlobalAuthGuard: false,
         };
