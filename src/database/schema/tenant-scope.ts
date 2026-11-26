@@ -8,7 +8,7 @@ import {
 
 export function tenantScopeColumn() {
   return text('tenant_scope')
-    .generatedAlwaysAs(sql`coalesce(tenant_id, '')`, { mode: 'stored' })
+    .generatedAlwaysAs(sql`coalesce(tenant_id, '')`)
     .notNull();
 }
 
